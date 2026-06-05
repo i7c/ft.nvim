@@ -131,7 +131,12 @@ Behaviour:                                    *ft-embed-behaviour*
 Configuration:                                *ft-embed-config*
 
 >lua
-  vim.g.ft_embed_max_lines = 20     -- max content lines per embed
+  require('ft').setup({
+    embeds = {
+      enable = true,
+      max_lines = 20,   -- max content lines per embed
+    },
+  })
 <
 
   To disable entirely:

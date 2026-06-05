@@ -24,6 +24,9 @@ local last_bot = -1
 -- Debounce timer handle.
 local debounce_timer = nil
 
+-- Max content lines per embed (configurable via setup).
+local max_lines = 20
+
 -- Autocommand group.
 local augroup = vim.api.nvim_create_augroup('ft_embed', { clear = true })
 
@@ -147,7 +150,7 @@ function M.render_viewport()
         return
     end
 
-    local max_lines = vim.g.ft_embed_max_lines or 20
+    local limit = max_lines
 
     -- Read lines in the visible range to find embeds.
     local lines = vim.api.nvim_buf_get_lines(bufnr, top - 1, bot, false)
@@ -220,8 +223,12 @@ function M.clear()
 end
 
 --- Setup embed rendering for the current buffer.
---- @param _opts table  Plugin config (embeds subsection, unused)
-function M.setup(_opts)
+--- @param opts table  Plugin config (embeds subsection) with optional:
+---   - max_lines: number  Max content lines per embed (default 20)
+function M.setup(opts)
+    if opts and opts.max_lines then
+        max_lines = opts.max_lines
+    end
     -- Initial render on BufEnter (fires when the buffer is first shown).
     vim.api.nvim_create_autocmd('BufEnter', {
         group = augroup,
