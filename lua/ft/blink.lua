@@ -17,32 +17,50 @@ function source.new(opts, _config)
     return setmetatable({}, { __index = source })
 end
 
+--- Trigger on `[` so blink.cmp re-evaluates after each bracket is typed.
+--- Our get_completions returns empty items when not inside `[[...]]`.
+--- @return string[]
+function source:get_trigger_characters()
+    return { '[' }
+end
+
 --- @param context blink.cmp.Context
 --- @param resolve fun(response: blink.cmp.CompletionResponse)
 function source:get_completions(context, resolve)
+    local empty = {
+        is_incomplete_forward = false,
+        is_incomplete_backward = false,
+        items = {},
+    }
+
     if not cache.is_ready() then
-        resolve({ is_incomplete_forward = false, is_incomplete_backward = false, items = {} })
+        resolve(empty)
         return
     end
 
     local line = context.line
     local cursor_char = context.cursor[2] -- 0-indexed byte position
 
-    -- Find the last `[[` before the cursor, capturing the typed text.
+    -- Find the last `[[` before the cursor.
+    -- Lua's `()` capture returns the 1-indexed position AFTER the
+    -- captured pattern — i.e., the position right after `[[`.
     local before = line:sub(1, cursor_char)
-    local start_col = before:match('.*%[%[()') -- 1-indexed position of opening [[
-
-    if not start_col then
-        resolve({ is_incomplete_forward = false, is_incomplete_backward = false, items = {} })
+    local after_open = before:match('.*%[%[()')
+    if not after_open then
+        resolve(empty)
         return
     end
 
-    -- Text the user has typed between [[ and cursor.
-    local typed = line:sub(start_col + 2, cursor_char)
+    -- Text the user has typed BETWEEN `[[` and the cursor.
+    -- `after_open` is 1-indexed (position after `[[`), `cursor_char`
+    -- is 0-indexed.  For line:sub both can be used as-is since
+    --   1-indexed 3 == 0-indexed 2-with-an-offset
+    -- and line:sub(3, 4) gives chars at 1-indexed positions 3-4 = "Bu".
+    local typed = line:sub(after_open, cursor_char)
 
     local matches = cache.search(typed, 25)
     if #matches == 0 then
-        resolve({ is_incomplete_forward = false, is_incomplete_backward = false, items = {} })
+        resolve(empty)
         return
     end
 
@@ -56,13 +74,17 @@ function source:get_completions(context, resolve)
 
     local line_zero = context.cursor[1] - 1 -- blink uses 0-indexed lines
 
+    -- Range start (0-indexed): `after_open` is 1-indexed position
+    -- after `[[`, so 0-indexed = after_open - 1.
+    local range_start = after_open - 1
+
     local items = {}
     for _, info in ipairs(matches) do
         table.insert(items, {
             label = info.title,
             textEdit = {
                 range = {
-                    start = { line = line_zero, character = start_col + 1 }, -- after [[
+                    start = { line = line_zero, character = range_start },
                     ['end'] = { line = line_zero, character = end_char },
                 },
                 newText = info.title .. ']]',
