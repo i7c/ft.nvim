@@ -32,6 +32,9 @@ local function try_register_blink()
     blink_config.sources.providers['ft'] = {
         name = 'ft.wiki',
         module = 'ft.blink',
+        -- Don't suppress our items on short words (e.g. spaces split
+        -- titles with multiple words, making the word boundary reset).
+        min_keyword_length = 0,
     }
 
     -- Register for markdown files specifically.
