@@ -1,7 +1,12 @@
 --- Wikilink autocompletion.
 ---
 --- Provides an omnifunc (`v:lua.require("ft.complete").complete`)
---- that completes note titles inside `[[...]]`. Auto-triggers on `[[`.
+--- that completes note titles inside `[[...]]`.
+---
+--- Auto-triggers via TextChangedI (fires after all buffer changes from
+--- a keystroke are applied, so it works with auto-pair plugins like
+--- nvim-autopairs that expand `[[` → `[[]]`).
+---
 --- @module ft.complete
 
 local cache = require('ft.cache')
@@ -20,29 +25,49 @@ function M.setup(opts)
     -- 2. Set the buffer-local omnifunc.
     vim.bo.omnifunc = 'v:lua.require("ft.complete").complete'
 
-    -- 3. Auto-trigger completion when the user types the second `[`.
+    -- 3. Auto-trigger completion when the cursor enters a wikilink context.
     --
-    -- InsertCharPre fires BEFORE the character goes into the buffer,
-    -- so when typing the second `[` the line still only has one `[`.
-    -- We check: is v:char == '[' AND is the char before cursor also '['?
-    vim.api.nvim_create_autocmd('InsertCharPre', {
+    -- TextChangedI fires AFTER all buffer changes from a single keystroke
+    -- are applied. This correctly handles auto-pair plugins (which expand
+    -- `[[` → `[[]]`) because the full pattern is already in the buffer.
+    --
+    -- A `triggered` flag prevents re-triggering on every keystroke while
+    -- the completion popup is active. The flag is reset by CompleteDone.
+    --
+    -- Pattern: before cursor matches `[[<anything except [ or ]>`.
+    -- This fires for both `[[` (no auto-pairs) and `[[...` inside `[[]]`.
+    local triggered = false
+
+    vim.api.nvim_create_autocmd('CompleteDone', {
         group = augroup,
         buffer = 0,
         callback = function()
-            if vim.v.char ~= '[' then
-                return
-            end
-            local col = vim.fn.col('.')
+            triggered = false
+        end,
+    })
+
+    vim.api.nvim_create_autocmd('TextChangedI', {
+        group = augroup,
+        buffer = 0,
+        callback = function()
+            local col = vim.fn.col('.') - 1
             if col < 2 then
+                triggered = false
                 return
             end
             local line = vim.fn.getline('.')
-            -- 91 is the byte value of '['
-            if line:byte(col - 1) == 91 then
-                vim.fn.feedkeys(
-                    vim.api.nvim_replace_termcodes('<C-x><C-o>', true, false, true),
-                    'n'
-                )
+            local before = line:sub(1, col)
+
+            if before:match('%[%[[^%[%]]*$') then
+                if not triggered then
+                    triggered = true
+                    vim.fn.feedkeys(
+                        vim.api.nvim_replace_termcodes('<C-x><C-o>', true, false, true),
+                        'n'
+                    )
+                end
+            else
+                triggered = false
             end
         end,
     })
@@ -55,21 +80,6 @@ function M.setup(opts)
         once = true,
         callback = function()
             cache.refresh()
-        end,
-    })
-
-    -- 5. Auto-close `]]` on completion done when inside an unclosed [[.
-    vim.api.nvim_create_autocmd('CompleteDone', {
-        group = augroup,
-        buffer = 0,
-        callback = function()
-            local line = vim.fn.getline('.')
-            local col = vim.fn.col('.') - 1
-            local before = line:sub(1, col)
-            -- If the line ends with `[[SomeText` (no `]]` yet), close it.
-            if before:match('%[%[[^%[%]]+$') then
-                vim.fn.feedkeys(']]', 'n')
-            end
         end,
     })
 end
