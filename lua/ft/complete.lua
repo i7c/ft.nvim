@@ -20,19 +20,25 @@ function M.setup(opts)
     -- 2. Set the buffer-local omnifunc.
     vim.bo.omnifunc = 'v:lua.require("ft.complete").complete'
 
-    -- 3. Auto-trigger completion when the user types `[[`.
+    -- 3. Auto-trigger completion when the user types the second `[`.
+    --
+    -- InsertCharPre fires BEFORE the character goes into the buffer,
+    -- so when typing the second `[` the line still only has one `[`.
+    -- We check: is v:char == '[' AND is the char before cursor also '['?
     vim.api.nvim_create_autocmd('InsertCharPre', {
         group = augroup,
         buffer = 0,
         callback = function()
+            if vim.v.char ~= '[' then
+                return
+            end
             local col = vim.fn.col('.')
-            -- We need at least 2 chars before cursor to have typed [[
             if col < 2 then
                 return
             end
             local line = vim.fn.getline('.')
-            local pre = line:sub(col - 1, col)
-            if pre == '[[' then
+            -- 91 is the byte value of '['
+            if line:byte(col - 1) == 91 then
                 vim.fn.feedkeys(
                     vim.api.nvim_replace_termcodes('<C-x><C-o>', true, false, true),
                     'n'
@@ -90,8 +96,10 @@ function M.complete(findstart, base)
         local open_pos = before:find('%[%[', search_start)
 
         if open_pos then
-            -- Return 0-indexed column of the first `[`.
-            return open_pos - 1
+            -- Return 0-indexed column AFTER the `[[` brackets so that
+            -- `base` is only the note title text (e.g. "App") and
+            -- NOT "[[App".
+            return (open_pos - 1) + 2
         end
 
         return -2 -- not inside a wikilink
