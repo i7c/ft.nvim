@@ -1,6 +1,6 @@
 # ft.nvim
 
-Neovim plugin for [ft](https://github.com/cmw/ft) — an Obsidian vault CLI toolkit.
+Neovim plugin for [ft](https://github.com/i7c/ft) — an Obsidian vault CLI toolkit.
 
 Navigate `[[wikilinks]]`, autocomplete note titles, and render `![[embeds]]` inline — all inside Neovim, backed by `ft`'s fast vault-aware link resolution.
 
@@ -13,7 +13,7 @@ Navigate `[[wikilinks]]`, autocomplete note titles, and render `![[embeds]]` inl
 ## Requirements
 
 - Neovim >= 0.9
-- [ft](https://github.com/cmw/ft) CLI tool on `$PATH`
+- [ft](https://github.com/i7c/ft) CLI tool on `$PATH`
 
 ## Install
 
