@@ -28,8 +28,8 @@ end
 --- @param resolve fun(response: blink.cmp.CompletionResponse)
 function source:get_completions(context, resolve)
     local empty = {
-        is_incomplete_forward = false,
-        is_incomplete_backward = false,
+        is_incomplete_forward = true,
+        is_incomplete_backward = true,
         items = {},
     }
 
@@ -92,7 +92,7 @@ function source:get_completions(context, resolve)
         })
     end
 
-    resolve({ is_incomplete_forward = false, is_incomplete_backward = false, items = items })
+    resolve({ is_incomplete_forward = true, is_incomplete_backward = true, items = items })
 end
 
 return source
