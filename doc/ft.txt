@@ -1,0 +1,87 @@
+*ft.txt*               ft.nvim — Neovim integration for the `ft` CLI
+
+==============================================================================
+INTRODUCTION                                    *ft*
+
+ft.nvim is a Neovim plugin that lets you follow `[[Wikilinks]]` in your
+Obsidian vault directly from Neovim, using the `ft` CLI (`ft`(1)) for
+link resolution and fuzzy search.
+
+Features:
+  - Follow `[[Wikilinks]]` under the cursor to the target note or heading
+  - Same-file anchors: `[[#heading]]` jumps within the current buffer
+  - Handles aliases: `[[Target|Display]]` links to `Target`
+  - Handles anchors: `[[Target#heading]]` opens the file and jumps to
+    the heading
+
+Requires: Neovim >= 0.9, `ft` CLI installed on PATH.
+
+==============================================================================
+INSTALLATION                                    *ft-install*
+
+Using lazy.nvim:
+
+>lua
+  {
+    'path/to/ft.nvim',                 -- or a git remote
+    lazy = true,
+    ft = 'markdown',                    -- load for markdown files
+    config = function()
+      require('ft').setup({
+        -- vault = '/path/to/your/vault',   -- optional: explicit vault path
+        follow = {
+          keymap = 'gf',                   -- or false to disable
+        },
+      })
+    end,
+  }
+<
+
+==============================================================================
+COMMANDS                                        *ft-commands*
+
+:FtFollow                                       *:FtFollow*
+
+  Follow the `[[Wikilink]]` under the cursor. Opens the target note in
+  the current window. For `[[#heading]]`, jumps to the heading within
+  the current buffer.
+
+==============================================================================
+KEYMAPS                                         *ft-keymaps*
+
+The default keymap is `gf` (normal mode). When the cursor is on a
+wikilink, it follows the link. When the cursor is NOT on a wikilink, the
+default Neovim `gf` behavior (jump to file under cursor) is preserved.
+
+To use a different key or disable:
+
+>lua
+  require('ft').setup({
+    follow = {
+      keymap = '<leader>wf',   -- use <leader>wf instead
+      -- keymap = false,       -- disable the keymap entirely
+    },
+  })
+<
+
+==============================================================================
+VAULT DISCOVERY                                  *ft-vault-discovery*
+
+The vault root is discovered in this order (highest precedence first):
+
+1. `FT_VAULT` environment variable
+2. The `vault` option passed to `require('ft').setup({ vault = '...' })`
+3. Walking up from the current buffer's directory for `.obsidian/`
+4. Walking up from the current working directory for `.obsidian/`
+
+If no vault is found, `:FtFollow` shows an error.
+
+==============================================================================
+REQUIREMENTS                                    *ft-requirements*
+
+- Neovim >= 0.9 (uses `vim.system`, `vim.json`, `vim.pesc`)
+- The `ft` CLI tool: https://github.com/your-org/ft
+  Install with `cargo install --path ft` from the `ft` repository.
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
