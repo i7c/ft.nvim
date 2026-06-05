@@ -1,9 +1,8 @@
 --- Embed rendering — display `![[linked note]]` content inline.
 ---
---- When the cursor is on a line containing an embed link in normal mode,
---- the target note's content is rendered as virtual lines below the line.
----
---- Trigger: CursorHold (configurable debounced trigger, default 400ms).
+--- Renders all embeds visible in the current viewport. Updated on scroll
+--- and cursor movement (debounced). Each embed shows the target note's
+--- content with a coloured vertical gutter and indentation.
 ---
 --- @module ft.embed
 
@@ -15,220 +14,266 @@ local M = {}
 -- Highlight namespace for embed virtual text.
 local ns = vim.api.nvim_create_namespace('ft_embeds')
 
--- Cache: resolved file path → { content_lines, mtime, max_lines }
--- Cleared on buffer write or manual refresh.
+-- Cache: resolved file path → { lines, mtime }
 local content_cache = {}
 
--- Track the last-rendered line so we avoid redundant redraws.
-local last_render_line = -1
-local last_render_text = ''
+-- Cached visible line range to avoid redundant re-renders.
+local last_top = -1
+local last_bot = -1
+
+-- Debounce timer handle.
+local debounce_timer = nil
 
 -- Autocommand group.
 local augroup = vim.api.nvim_create_augroup('ft_embed', { clear = true })
 
--- Separator width — caps at 72 chars or window width.
+-- Separator character repeated across the width.
+local SEP_CHAR = '─'
+-- Gutter character drawn before each content line.
+local GUTTER_CHAR = '│'
+-- Amount to indent the gutter + content from the left edge.
+local INDENT = '  '
+
+--- Separator width fitting the window.
 local function sep_width()
-    return math.min(72, vim.api.nvim_win_get_width(0) - 2)
+    return math.max(10, math.min(72, vim.api.nvim_win_get_width(0) - 2))
 end
 
---- Build separator lines with consistent styling.
---- @return table[]  Array of virt_text tuples
-local function build_sep()
+--- Build a single horizontal separator row.
+--- @return table[]  virt_text array
+local function sep_row()
     local w = sep_width()
-    return { { string.rep('─', w), 'Comment' } }
+    return { { string.rep(SEP_CHAR, w), 'Comment' } }
 end
 
---- Read and cache the content of a note.
---- @param abs_path string  Absolute path to the note file
---- @param max_lines integer  Max number of lines to keep
---- @return string[]|nil  Array of content lines, or nil on error
+--- Build a content line with gutter + indentation.
+--- @param text string  The line text from the embedded note
+--- @return table[]  virt_text array
+local function content_row(text)
+    local display = text:gsub('%s+$', '')
+    return {
+        { INDENT, 'NonText' },
+        { GUTTER_CHAR .. ' ', 'NonText' },
+        { display, '' },
+    }
+end
+
+--- Read and cache note content.
+--- @param abs_path string  Absolute path to the note
+--- @param max_lines integer  Max lines to keep
+--- @return string[]|nil  Array of content lines, or nil
 local function read_note(abs_path, max_lines)
-    -- Check cache freshness
     local stat = vim.loop.fs_stat(abs_path)
     if not stat then
         return nil
     end
 
     local cached = content_cache[abs_path]
-    if cached and cached.mtime == stat.mtime.sec and cached.max_lines >= max_lines then
+    if cached and cached.mtime == stat.mtime.sec then
         return cached.lines
     end
 
-    -- Read the file
     local fd = vim.loop.fs_open(abs_path, 'r', 438)
     if not fd then
         return nil
     end
-
-    local content = vim.loop.fs_read(fd, stat.size, 0)
+    local raw = vim.loop.fs_read(fd, stat.size, 0)
     vim.loop.fs_close(fd)
-    if not content then
+    if not raw then
         return nil
     end
 
-    -- Split into lines and truncate
-    local lines = vim.split(content, '\n')
+    local lines = vim.split(raw, '\n')
     if #lines > max_lines then
-        local truncated = {}
+        local trimmed = {}
         for i = 1, max_lines do
-            truncated[i] = lines[i]
+            trimmed[i] = lines[i]
         end
-        table.insert(truncated, string.rep('⋯', sep_width()))
-        lines = truncated
+        trimmed[max_lines + 1] = string.rep('⋯', 5)
+        lines = trimmed
     end
 
-    -- Cache
-    content_cache[abs_path] = {
-        lines = lines,
-        mtime = stat.mtime.sec,
-        max_lines = max_lines,
-    }
-
+    content_cache[abs_path] = { lines = lines, mtime = stat.mtime.sec }
     return lines
 end
 
---- Render virtual lines for all embeds on the current line.
---- Called from the CursorHold handler.
-function M.render()
+--- Resolve an embed target to an absolute file path.
+--- Uses `ft find` for fuzzy resolution, falls back to exact path.
+--- @param target string  The wikilink target (text between [[ and ]])
+--- @return string|nil  Absolute path, or nil if not resolvable
+local function resolve_embed(target)
+    local vault_path = vault.get_vault()
+    if not vault_path then
+        return nil
+    end
+
+    local stdout, code = vault.ft_run({
+        'find', target,
+        '--format', 'ndjson',
+        '--limit', '1',
+    })
+    if code ~= 0 or not stdout then
+        return nil
+    end
+
+    local result = vim.json.decode(stdout:match('[^\n]+'))
+    if not result or not result.path then
+        return nil
+    end
+
+    return vault_path .. '/' .. result.path
+end
+
+--- Render every `![[embed]]` in the current viewport.
+function M.render_viewport()
     local bufnr = vim.api.nvim_get_current_buf()
     local win = vim.api.nvim_get_current_win()
 
-    -- Clear previous renders on this buffer.
-    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    local top = vim.fn.line('w0')
+    local bot = vim.fn.line('w$')
 
-    -- Read the current line.
-    local line = vim.api.nvim_get_current_line()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local line_num = cursor[1]
-
-    -- Skip if same line and same text as last render.
-    if line_num == last_render_line and line == last_render_text then
+    -- Skip if the visible range hasn't changed.
+    if top == last_top and bot == last_bot then
         return
     end
-    last_render_line = line_num
-    last_render_text = line
+    last_top = top
+    last_bot = bot
 
-    -- Parse embeds on this line.
-    local embeds = wikilink.parse_wikilinks(line, line_num)
-    local found_embed = false
+    -- Clear previous renders.
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
     local vault_path = vault.get_vault()
     if not vault_path then
         return
     end
 
-    local config_max_lines = vim.g.ft_embed_max_lines or 50
+    local max_lines = vim.g.ft_embed_max_lines or 20
 
-    for _, e in ipairs(embeds) do
-        if not e.is_embed then
-            goto continue
+    -- Read lines in the visible range to find embeds.
+    local lines = vim.api.nvim_buf_get_lines(bufnr, top - 1, bot, false)
+    local renders = {} -- { line_num (1-indexed), virt_lines[] }
+
+    for i, line_text in ipairs(lines) do
+        local line_num = top + i - 1
+        local embeds = wikilink.parse_wikilinks(line_text, line_num)
+
+        for _, e in ipairs(embeds) do
+            if e.is_embed then
+                local abs_path = resolve_embed(e.target)
+                if not abs_path then
+                    -- Unresolved placeholder.
+                    local virt = {}
+                    table.insert(virt, sep_row())
+                    table.insert(virt, content_row('![' .. e.target .. ']  (not found)'))
+                    table.insert(virt, sep_row())
+                    table.insert(renders, { line = line_num, virt = virt })
+                else
+                    local content_lines = read_note(abs_path, max_lines)
+                    if content_lines then
+                        local virt = {}
+                        -- No opening separator — the embed text itself
+                        -- marks the start. Just show a closing separator.
+                        for _, cl in ipairs(content_lines) do
+                            table.insert(virt, content_row(cl))
+                        end
+                        table.insert(virt, sep_row())
+                        table.insert(renders, { line = line_num, virt = virt })
+                    end
+                end
+            end
         end
-        found_embed = true
-
-        -- Resolve target path via ft find.
-        local stdout, code = vault.ft_run({
-            'find',
-            e.target,
-            '--format',
-            'ndjson',
-            '--limit',
-            '1',
-        })
-        if code ~= 0 or not stdout then
-            -- Show unresolved target text as greyed placeholder.
-            local virt = {}
-            table.insert(virt, build_sep())
-            table.insert(virt, { { '│ ![[', 'Comment' }, { e.target, 'Special' }, { ']]', 'Comment' }, { '  (not found)', 'NonText' } })
-            table.insert(virt, build_sep())
-            vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
-                virt_lines = virt,
-                virt_lines_above = false,
-            })
-            goto continue
-        end
-
-        local result = vim.json.decode(stdout:match('[^\n]+'))
-        if not result or not result.path then
-            goto continue
-        end
-
-        local abs_path = vault_path .. '/' .. result.path
-
-        -- Read the note content.
-        local content_lines = read_note(abs_path, config_max_lines)
-        if not content_lines then
-            goto continue
-        end
-
-        -- Build virtual lines.
-        local virt = {}
-        table.insert(virt, build_sep())
-
-        for _, cl in ipairs(content_lines) do
-            -- Strip trailing whitespace for clean display.
-            local display = cl:gsub('%s+$', '')
-            table.insert(virt, { { display, '' } })
-        end
-
-        table.insert(virt, build_sep())
-
-        -- Apply extmark at the embed line.
-        vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
-            virt_lines = virt,
-            virt_lines_above = false,
-        })
-
-        ::continue::
     end
 
-    -- Clear the last-render markers when no embed was found (so the
-    -- handler re-evaluates on next CursorHold after the user edits).
-    if not found_embed then
-        last_render_line = -1
-        last_render_text = ''
+    -- Apply extmarks.
+    for _, r in ipairs(renders) do
+        vim.api.nvim_buf_set_extmark(bufnr, ns, r.line - 1, 0, {
+            virt_lines = r.virt,
+            virt_lines_above = false,
+        })
     end
 end
 
---- Clear all rendered embeds in the current buffer.
+--- Debounced trigger for viewport render.
+local function debounced_render()
+    if debounce_timer then
+        pcall(debounce_timer.stop, debounce_timer)
+        pcall(debounce_timer.close, debounce_timer)
+    end
+    debounce_timer = vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(0) and vim.bo.filetype == 'markdown' then
+            M.render_viewport()
+        end
+    end, 150)
+end
+
+--- Clear all rendered embeds and cancel pending renders.
 function M.clear()
     vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
     content_cache = {}
-    last_render_line = -1
-    last_render_text = ''
+    last_top = -1
+    last_bot = -1
+    if debounce_timer then
+        pcall(debounce_timer.stop, debounce_timer)
+        pcall(debounce_timer.close, debounce_timer)
+        debounce_timer = nil
+    end
 end
 
 --- Setup embed rendering for the current buffer.
---- @param opts table  Plugin config (embeds subsection)
-function M.setup(opts)
-    -- CursorHold trigger
-    vim.api.nvim_create_autocmd('CursorHold', {
+--- @param _opts table  Plugin config (embeds subsection, unused)
+function M.setup(_opts)
+    -- Initial render on BufEnter (fires when the buffer is first shown).
+    vim.api.nvim_create_autocmd('BufEnter', {
         group = augroup,
         buffer = 0,
         callback = function()
-            M.render()
+            M.render_viewport()
         end,
     })
 
-    -- Clear embeds on buffer write (content may have changed).
+    -- Re-render on scroll (viewport changes).
+    vim.api.nvim_create_autocmd('WinScrolled', {
+        group = augroup,
+        buffer = 0,
+        callback = function()
+            debounced_render()
+        end,
+    })
+
+    -- Re-render on cursor move (in case the viewport didn't scroll
+    -- but the cursor entered a zone with new embeds).
+    vim.api.nvim_create_autocmd('CursorMoved', {
+        group = augroup,
+        buffer = 0,
+        callback = function()
+            debounced_render()
+        end,
+    })
+
+    -- Re-render after write (content may have changed).
     vim.api.nvim_create_autocmd('BufWritePost', {
         group = augroup,
         buffer = 0,
         callback = function()
-            M.clear()
+            content_cache = {}
+            last_top = -1
+            last_bot = -1
+            M.render_viewport()
         end,
     })
 
-    -- Clear embeds on InsertEnter so the user can edit without
-    -- virtual lines getting in the way.
+    -- Clear on InsertEnter so the user can edit without distraction.
     vim.api.nvim_create_autocmd('InsertEnter', {
         group = augroup,
         buffer = 0,
         callback = function()
             vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+            last_top = -1
+            last_bot = -1
         end,
     })
 
-    -- When leaving the buffer, clean up namespaces and cache.
+    -- Full cleanup on BufLeave.
     vim.api.nvim_create_autocmd('BufLeave', {
         group = augroup,
         buffer = 0,

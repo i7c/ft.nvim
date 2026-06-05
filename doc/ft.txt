@@ -95,42 +95,43 @@ Cache:                                        *ft-completion-cache*
 ==============================================================================
 EMBED RENDERING                                 *ft-embed*
 
-  In normal mode, when the cursor rests on a line containing
-  `![[linked note]]`, the target note's content is rendered as
-  virtual text lines below the current line.
+  Every `![[linked note]]` visible in the current viewport is rendered
+  inline as virtual text below its line. Content updates on scroll,
+  cursor move (debounced), and after buffer write.
 
   Layout::
 
     Some text ![[Meeting Notes]]                   ← the source line
-    ────────────────────────────────────────      ← separator (Comment hl)
-    # Meeting Notes                                ← rendered content
-    ## Attendees
-    - Alice
-    - Bob
-    ────────────────────────────────────────      ← closing separator
+      │ # Meeting Notes                              ← gutter + indent
+      │ ## Attendees
+      │ - Alice
+      │ - Bob
+      ──────────────────────────────                 ← closing separator
 
-  The separators use the `Comment` highlight group (typically
-  dimmed/gray) so embedded content is visually distinct from the
-  real buffer.
+  The gutter character (`│`) uses the `NonText` highlight group
+  (typically dimmed); the content uses `Normal`. A `─` separator in
+  `Comment` marks where the embedded content ends.
 
 Behaviour:                                    *ft-embed-behaviour*
 
-  - Triggers on `CursorHold` (approx. 400ms after the cursor stops
-    moving in normal mode).
-  - Clears when you enter insert mode, when the buffer is written,
-    or when you leave the buffer.
-  - Caches note content by file mtime so repeated lookups of the
-    same note are fast.
-  - Truncates long notes at 50 lines by default.
+  - Renders all `![[...]]` embeds visible in the current window.
+    Updates on scroll (`WinScrolled`) and cursor movement
+    (`CursorMoved`, debounced at 150ms).
+  - Clears on `InsertEnter` so editing is distraction-free.
+    Re-renders on `BufEnter` and `BufWritePost`.
+  - Caches note content by file mtime — repeated lookups of the
+    same note in the same buffer session are instant.
+  - Truncates long notes at 20 lines by default (configurable).
+    A `⋯⋯` marker indicates truncated content.
   - Unresolved targets (notes that don't exist yet) show a
-    placeholder.
+    `(not found)` placeholder.
+  - To read the full note, press `gf` or `:FtFollow` on the embed
+    line — it will open the linked note.
 
-Configuration:
-
-  Set via global variables on the `vim` object:
+Configuration:                                *ft-embed-config*
 
 >lua
-  vim.g.ft_embed_max_lines = 50     -- max lines to show per embed
+  vim.g.ft_embed_max_lines = 20     -- max content lines per embed
 <
 
   To disable entirely:
