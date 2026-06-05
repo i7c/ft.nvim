@@ -68,25 +68,21 @@ Keymap:                                       *ft-follow-keymap*
 ==============================================================================
 AUTOCOMPLETION                                  *ft-completion*
 
-  When typing `[[`, Neovim's built-in completion menu pops up with
-  matching note titles from your vault. Typing more narrows the list.
+  When typing `[[`, note titles from your vault appear in the
+  completion menu. Typing more narrows the list.
 
-  Selecting a completion inserts the title and auto-closes with `]]`.
-  The note's vault-relative path is shown in the completion menu's
-  right column.
+Integration:                                  *ft-completion-integration*
 
-Trigger:                                      *ft-completion-trigger*
+  **blink.cmp** (default in LazyVim) — automatically registered.
+  No config changes needed.
 
-  - Auto-triggers as soon as you type `[[`
-  - Can be invoked manually with `<C-x><C-o>` after `[[`
-  - Case-insensitive prefix/substring matching
-  - Max 20 results (filter as you type to narrow down)
+  **No framework** — falls back to `'omnifunc'` with `<C-x><C-o>`.
+  Auto-triggers after typing `[[` (works with auto-pair plugins).
 
 Cache:                                        *ft-completion-cache*
 
   The note list is fetched from `ft graph query` once per session.
-  It is refreshed on the first markdown buffer you open. Use
-  `:lua require("ft.cache").refresh()` to rebuild it manually.
+  Use `:lua require("ft.cache").refresh()` to rebuild it manually.
 
   To disable:
 

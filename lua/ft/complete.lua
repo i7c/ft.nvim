@@ -1,11 +1,8 @@
 --- Wikilink autocompletion.
 ---
---- Provides an omnifunc (`v:lua.require("ft.complete").complete`)
---- that completes note titles inside `[[...]]`.
----
---- Auto-triggers via TextChangedI (fires after all buffer changes from
---- a keystroke are applied, so it works with auto-pair plugins like
---- nvim-autopairs that expand `[[` → `[[]]`).
+--- Attempts to register with blink.cmp (the likely completion framework
+--- for LazyVim users). Falls back to setting 'omnifunc' when blink.cmp
+--- is not available.
 ---
 --- @module ft.complete
 
@@ -13,29 +10,61 @@ local cache = require('ft.cache')
 
 local M = {}
 
--- Autocommand group so we can clean up on BufLeave.
+-- Autocommand group.
 local augroup = vim.api.nvim_create_augroup('ft_complete', { clear = true })
 
+--- Try to register a wikilink completion source with blink.cmp.
+--- Returns true if successful.
+--- @return boolean
+local function try_register_blink()
+    local ok, blink_sources = pcall(require, 'blink.cmp.sources.lib')
+    if not ok then
+        return false
+    end
+
+    -- Inject our provider config into blink.cmp's config so
+    -- `get_provider_by_id` can lazy-load it on first use.
+    local ok2, blink_config = pcall(require, 'blink.cmp.config')
+    if not ok2 then
+        return false
+    end
+
+    blink_config.sources.providers['ft'] = {
+        name = 'ft.wiki',
+        module = 'ft.blink',
+    }
+
+    -- Register for markdown files specifically.
+    blink_sources.add_filetype_provider_id('markdown', 'ft')
+
+    return true
+end
+
 --- Setup completion for the current buffer.
---- @param opts table  Plugin config (completion subsection)
-function M.setup(opts)
-    -- 1. Populate the note cache (no-op if already done or vault not ready).
+--- @param _opts table  Plugin config (completion subsection, unused for now)
+function M.setup(_opts)
+    -- 1. Populate the note cache.
     cache.refresh()
 
-    -- 2. Set the buffer-local omnifunc.
-    vim.bo.omnifunc = 'v:lua.require("ft.complete").complete'
+    -- 2. Refresh cache once on BufEnter (one-shot).
+    vim.api.nvim_create_autocmd('BufEnter', {
+        group = augroup,
+        buffer = 0,
+        once = true,
+        callback = function()
+            cache.refresh()
+        end,
+    })
 
-    -- 3. Auto-trigger completion when the cursor enters a wikilink context.
-    --
-    -- TextChangedI fires AFTER all buffer changes from a single keystroke
-    -- are applied. This correctly handles auto-pair plugins (which expand
-    -- `[[` → `[[]]`) because the full pattern is already in the buffer.
-    --
-    -- A `triggered` flag prevents re-triggering on every keystroke while
-    -- the completion popup is active. The flag is reset by CompleteDone.
-    --
-    -- Pattern: before cursor matches `[[<anything except [ or ]>`.
-    -- This fires for both `[[` (no auto-pairs) and `[[...` inside `[[]]`.
+    -- 3. Try blink.cmp source registration.
+    if try_register_blink() then
+        return
+    end
+
+    -- 4. Fallback: set omnifunc for non-blink users.
+    vim.bo.omnifunc = 'v:lua.require("ft.complete").complete__omnifunc'
+
+    -- Auto-trigger via TextChangedI (handles auto-pair plugins).
     local triggered = false
 
     vim.api.nvim_create_autocmd('CompleteDone', {
@@ -62,7 +91,12 @@ function M.setup(opts)
                 if not triggered then
                     triggered = true
                     vim.fn.feedkeys(
-                        vim.api.nvim_replace_termcodes('<C-x><C-o>', true, false, true),
+                        vim.api.nvim_replace_termcodes(
+                            '<C-x><C-o>',
+                            true,
+                            false,
+                            true
+                        ),
                         'n'
                     )
                 end
@@ -71,56 +105,30 @@ function M.setup(opts)
             end
         end,
     })
-
-    -- 4. Refresh the cache on BufEnter for the vault (one-shot after setup).
-    --    Subsequent file opens within the same session reuse the cache.
-    vim.api.nvim_create_autocmd('BufEnter', {
-        group = augroup,
-        buffer = 0,
-        once = true,
-        callback = function()
-            cache.refresh()
-        end,
-    })
 end
 
---- Omnifunc for wikilink completion.
+--- Omnifunc fallback (used when blink.cmp is not available).
 ---
---- Invoked by Neovim when the user presses `<C-x><C-o>` or when
---- auto-triggered by the `[[` InsertCharPre handler.
----
---- @param findstart integer  1 = find start column, 0 = complete
---- @param base     string    Text between start column and cursor
---- @return integer|table  Start column or list of completion items
-function M.complete(findstart, base)
+--- @param findstart integer  1 = find start, 0 = complete
+--- @param base     string    Text between start and cursor
+--- @return integer|table
+function M.complete__omnifunc(findstart, base)
     if findstart == 1 then
-        -- Scan backwards from cursor to find the opening `[[`.
         local line = vim.fn.getline('.')
-        local col = vim.fn.col('.') - 1 -- 0-indexed byte offset
-
+        local col = vim.fn.col('.') - 1
         local before = line:sub(1, col)
-        -- Find the last `[[` before the cursor. We look for it at
-        -- positions col-1, col-2, ... to handle [[partial where the
-        -- second [ may be at col.
-        local search_start = math.max(1, col - 50) -- bound search window
-        local open_pos = before:find('%[%[', search_start)
 
+        local search_start = math.max(1, col - 100)
+        local open_pos = before:find('%[%[', search_start)
         if open_pos then
-            -- Return 0-indexed column AFTER the `[[` brackets so that
-            -- `base` is only the note title text (e.g. "App") and
-            -- NOT "[[App".
             return (open_pos - 1) + 2
         end
-
-        return -2 -- not inside a wikilink
+        return -2
     end
 
-    -- Completion phase: find notes matching `base`.
     local results = cache.search(base, 20)
     local items = {}
-
     for _, info in ipairs(results) do
-        -- Primary: insert `Title]]` so the wikilink is auto-closed.
         table.insert(items, {
             word = info.title .. ']]',
             abbr = info.title,
@@ -129,7 +137,6 @@ function M.complete(findstart, base)
             dup = 1,
         })
     end
-
     return items
 end
 

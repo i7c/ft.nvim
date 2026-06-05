@@ -52,6 +52,13 @@ local config = {}
 ---
 --- @param opts table|nil  Configuration options
 function M.setup(opts)
+    -- Accept both `embed` and `embeds` config keys (user-friendly alias).
+    local opts = vim.deepcopy(opts or {})
+    if opts.embed ~= nil and opts.embeds == nil then
+        opts.embeds = opts.embed
+    end
+    opts.embed = nil
+
     config = vim.tbl_deep_extend('keep', opts or {}, defaults)
 
     -- Discover vault (best-effort; discovery state is cached so follow
