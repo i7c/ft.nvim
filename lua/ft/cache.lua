@@ -1,7 +1,9 @@
 --- Note list cache for wikilink autocompletion.
 ---
 --- Builds an in-memory index of all notes in the vault by running
---- `ft graph query 'node where kind = Note' --format ndjson`.
+--- `ft graph query 'node where kind in {Note, Ghost}' --format ndjson`.
+--- Ghost nodes are included so users can complete links to notes that
+--- don't exist yet (referenced from other notes but not yet created).
 --- The result is cached so subsequent lookups are instant.
 ---
 --- @module ft.cache
@@ -25,7 +27,7 @@ function M.refresh()
     local stdout, code = vault.ft_run({
         'graph',
         'query',
-        'node where kind = Note',
+        'node where kind in {Note, Ghost}',
         '--format',
         'ndjson',
     })
