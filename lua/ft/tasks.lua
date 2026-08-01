@@ -296,4 +296,54 @@ function M.cancel()
     _update('cancel')
 end
 
+-- ── Edit due date ───────────────────────────────────────────────────────────
+
+--- Set or clear the due date of the task under the cursor
+--- (`ft tasks edit --due`). Prompts via `vim.ui.input`; the value is
+--- passed verbatim to `--due` so ft resolves `+2d` / `today` / ISO /
+--- natural language into the task line's ISO date, and `none` clears
+--- it. An empty prompt cancels without running any command.
+function M.set_due()
+    local ctx = _preflight()
+    if not ctx then
+        return
+    end
+
+    vim.ui.input({
+        prompt = 'ft: due date',
+        default = '',
+    }, function(input)
+        if not input or #input == 0 then
+            return -- cancelled / empty: no change
+        end
+        if vim.api.nvim_get_current_buf() ~= ctx.buf then
+            vim.notify('ft: aborted — buffer changed while prompting', vim.log.levels.ERROR)
+            return
+        end
+        local line_num = vim.api.nvim_win_get_cursor(0)[1]
+        if not _save_buffer(ctx.buf) then
+            vim.notify('ft: could not save the buffer (read-only?)', vim.log.levels.ERROR)
+            return
+        end
+
+        local selector = ctx.rel .. ':' .. line_num
+        local stdout, exit_code = rpc.call({
+            'tasks', 'edit', selector, '--due', input, '--json-errors',
+        })
+
+        if exit_code == 0 then
+            _reload_from_disk(ctx.buf)
+        elseif exit_code == -1 then
+            return -- rpc.call notified the missing-binary case
+        else
+            local msg = _ft_message(stdout) or 'tasks edit failed'
+            if msg:find(NO_MATCH_MARKER, 1, true) then
+                vim.notify('ft: ' .. msg, vim.log.levels.WARN)
+            else
+                vim.notify('ft: ' .. msg, vim.log.levels.ERROR)
+            end
+        end
+    end)
+end
+
 return M

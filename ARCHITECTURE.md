@@ -102,6 +102,7 @@ this file and the plugin's `min_ft_version` check change with it.
 | `ft tasks create` | `<description>` `--file <rel> --at-line <N> --force [--due <date>] --json-errors` | `tasks.lua` (create at cursor) | `--force` makes duplicates allowed; the plugin extracts the inline `due:` token itself (the CLI does not parse quickline syntax) and passes the raw value through — ft resolves relative/keyword dates to ISO |
 | `ft tasks complete` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (done) | Exact selector for the task under the cursor; already-done exits 1 with `is already done` (classified as info, not error); recurring tasks write their next instance |
 | `ft tasks cancel` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (cancel) | Already-cancelled already exits 0 (idempotent at the CLI) |
+| `ft tasks edit` | `<file>:<line>` `--due <DATE\|none> --json-errors` | `tasks.lua` (set_due) | Single-task; `none` clears the due date; invalid dates error cleanly |
 
 Error classification for the update ops matches ft's stable error
 strings (`is already done`, `no tasks match selector`), pinned by the

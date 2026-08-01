@@ -39,17 +39,18 @@ vim.fn.writefile({
     'for a in "$@"; do',
     '  if [ "$a" = "--version" ]; then echo "ft 0.1.0"; exit 0; fi',
     'done',
-    'vault=""; subcmd=""; desc=""; file=""; at_line=""; selector=""',
+    'vault=""; subcmd=""; desc=""; file=""; at_line=""; selector=""; due=""',
     'while [ $# -gt 0 ]; do',
     '  case "$1" in',
     '    --vault) vault="$2"; shift 2 ;;',
     '    --file) file="$2"; shift 2 ;;',
     '    --at-line) at_line="$2"; shift 2 ;;',
+    '    --due) due="$2"; shift 2 ;;',
     '    --force|--yes|--json-errors|--edit) shift ;;',
     '    tasks) subcmd="$2"; shift 2 ;;',
     '    *)',
     '      if [ "$subcmd" = "create" ] && [ -z "$desc" ]; then desc="$1"',
-    '      elif { [ "$subcmd" = "complete" ] || [ "$subcmd" = "cancel" ]; } && [ -z "$selector" ]; then selector="$1"',
+    '      elif { [ "$subcmd" = "complete" ] || [ "$subcmd" = "cancel" ] || [ "$subcmd" = "edit" ]; } && [ -z "$selector" ]; then selector="$1"',
     '      fi',
     '      shift ;;',
     '  esac',
@@ -63,7 +64,7 @@ vim.fn.writefile({
     '    echo "Created task at $file:$at_line"',
     '    exit 0',
     '    ;;',
-    '  complete|cancel)',
+    '  complete|cancel|edit)',
     '    f="${selector%:*}"',
     '    l="${selector##*:}"',
     '    abs="$vault/$f"',
@@ -71,10 +72,18 @@ vim.fn.writefile({
     '      success)',
     '        if [ "$subcmd" = "complete" ]; then',
     '          sed -i "${l}s/^- \\[ \\]/- [x]/" "$abs"',
-    '        else',
+    '        elif [ "$subcmd" = "cancel" ]; then',
     '          sed -i "${l}s/^- \\[ \\]/- [-]/" "$abs"',
+    '        elif [ "$subcmd" = "edit" ]; then',
+    '          if [ "$due" = "none" ]; then',
+    '            sed -i "${l}s/ 📅 [0-9-]*//" "$abs"',
+    '          else',
+    '            sed -i "${l}s/$/ 📅 ${due}/" "$abs"',
+    '          fi',
     '        fi',
-    '        if [ "$subcmd" = "complete" ]; then echo "Completed $f:$l"; else echo "Cancelled $f:$l"; fi',
+    '        if [ "$subcmd" = "complete" ]; then echo "Completed $f:$l"',
+    '        elif [ "$subcmd" = "cancel" ]; then echo "Cancelled $f:$l"',
+    '        else echo "Edited $f:$l"; fi',
     '        exit 0',
     '        ;;',
     '      already_done)',
@@ -302,6 +311,57 @@ tasks.cancel()
 ok(#notified == notified_before, 'already-cancelled produces no error notification')
 ok(buf_lines()[3] == '- [-] Buy milk', 'already-cancelled leaves the line untouched')
 
+-- ── Edit due date ───────────────────────────────────────────────────────────
+
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = '+2d'
+tasks.set_due()
+local log_due_edit = table.concat(log_lines(), '\n')
+ok(log_due_edit:find('tasks edit inbox.md:3 --due +2d', 1, true) ~= nil,
+    'set_due argv: edit <file>:<line> --due +2d')
+ok(buf_lines()[3]:find('📅 +2d', 1, true) ~= nil, 'set_due rewrote the line on reload')
+
+-- Clear with `none`.
+reset_state({ '# Inbox', '', '- [ ] Buy milk 📅 2026-08-01' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = 'none'
+tasks.set_due()
+local log_due_none = table.concat(log_lines(), '\n')
+ok(log_due_none:find('tasks edit inbox.md:3 --due none', 1, true) ~= nil,
+    'set_due argv: --due none passed through')
+ok(buf_lines()[3]:find('📅', 1, true) == nil, 'set_due removed the due date on reload')
+
+-- Empty prompt cancels without an ft call.
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = false
+local before_count = #log_lines()
+tasks.set_due()
+ok(#log_lines() == before_count, 'dismissed due prompt runs no ft command')
+next_input = ''
+before_count = #log_lines()
+tasks.set_due()
+ok(#log_lines() == before_count, 'empty due input runs no ft command')
+
+-- Non-task line warns; hard failure errors.
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.fn.setenv('FT_STUB_MODE', 'no_match')
+next_input = '+2d'
+tasks.set_due()
+ok(last_notify().level == vim.log.levels.WARN
+    and last_notify().msg:find('no tasks match selector', 1, true) ~= nil,
+    'set_due on a non-task line warns')
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+vim.fn.setenv('FT_STUB_MODE', 'hard_error')
+next_input = '+2d'
+tasks.set_due()
+ok(last_notify().level == vim.log.levels.ERROR
+    and last_notify().msg:find('changed on disk', 1, true) ~= nil,
+    'set_due hard failure surfaces as an error')
+
 -- ── Undo history survives a mutation ───────────────────────────────────────
 
 reset_state({ '# Inbox', '', '- [ ] Buy milk', '- [ ] Walk dog' })
@@ -333,6 +393,7 @@ end
 ok(mapped('<leader>tt'), 'default create keymap <leader>tt is set')
 ok(mapped('<leader>td'), 'default done keymap <leader>td is set')
 ok(mapped('<leader>tc'), 'default cancel keymap <leader>tc is set')
+ok(mapped('<leader>te'), 'default due keymap <leader>te is set')
 
 -- Re-setup with one keymap disabled; new buffer picks up the config.
 require('ft').setup({ tasks = { keymaps = { cancel = false } } })
@@ -341,7 +402,17 @@ vim.fn.writefile({ '# Other' }, other)
 vim.cmd('edit ' .. vim.fn.fnameescape(other))
 vim.cmd('setfiletype markdown')
 ok(not mapped('<leader>tc'), 'disabled cancel keymap is unset after re-setup')
-ok(mapped('<leader>tt') and mapped('<leader>td'), 'remaining keymaps survive re-setup')
+ok(mapped('<leader>tt') and mapped('<leader>td') and mapped('<leader>te'),
+    'remaining keymaps survive re-setup')
+
+require('ft').setup({ tasks = { keymaps = { due = false } } })
+local third = base .. '/third.md'
+vim.fn.writefile({ '# Third' }, third)
+vim.cmd('edit ' .. vim.fn.fnameescape(third))
+vim.cmd('setfiletype markdown')
+ok(not mapped('<leader>te'), 'disabled due keymap is unset after re-setup')
+ok(mapped('<leader>tt') and mapped('<leader>tc'),
+    'other task keymaps survive the due disable')
 
 -- ── Outside the vault / missing binary ─────────────────────────────────────
 

@@ -10,7 +10,7 @@ Navigate `[[wikilinks]]` and autocomplete note titles — all inside Neovim, bac
 
 - **Follow wikilinks** — `gf` on `[[Target]]`, `[[Target|Alias]]`, `[[Target#Heading]]`, or `[[#Heading]]` opens the linked note (or jumps to the heading) in the current window
 - **Autocompletion** — type `[[` and note titles from your vault appear in the completion menu. Integrates natively with **blink.cmp** (LazyVim default); falls back to `'omnifunc'`
-- **Task operations** — create, mark done, and cancel tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskDone`, `:FtTaskCancel`). The description prompt accepts inline due dates (`Buy milk due:+2d`); the buffer is saved before each mutation and reloaded after, undo history intact
+- **Task operations** — create, mark done, cancel, and edit the due date of tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskDone`, `:FtTaskCancel`, `:FtTaskDue`). The create prompt accepts inline due dates (`Buy milk due:+2d`); the due command prompts for a date (`+7d`, `next monday`, or `none` to clear). The buffer is saved before each mutation and reloaded after, undo history intact
 
 ## Requirements
 
@@ -64,6 +64,7 @@ require('ft').setup({
       create = '<leader>tt', -- create a task at the cursor line
       done = '<leader>td',   -- mark the task under the cursor done
       cancel = '<leader>tc', -- cancel the task under the cursor
+      due = '<leader>te',    -- set/clear the due date under the cursor
       -- set any to false to disable the keymap (command still works)
     },
   },
@@ -88,6 +89,7 @@ ft.nvim discovers your Obsidian vault in this order:
 - `:FtTaskCreate` — create a task at the cursor line (prompt supports `due:+2d` inline dates)
 - `:FtTaskDone` — mark the task under the cursor done (`<leader>td`)
 - `:FtTaskCancel` — cancel the task under the cursor (`<leader>tc`)
+- `:FtTaskDue` — set/clear the due date of the task under the cursor (`<leader>te`; enter `none` to clear)
 
 Task operations save the buffer before running `ft` and reload it after
 (undo preserved). Marking an already-done/cancelled task is a no-op.

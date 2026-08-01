@@ -193,6 +193,27 @@ ok(cancel_text:match('%- %[%-%] Call dentist') ~= nil
     and cancel_text:find('❌ ' .. today, 1, true) ~= nil,
     'cancel rewrote the line with [-] … ❌ today')
 
+-- Due date edit: set via +7d, clear via none, bad date errors.
+local due_line = find_line('^%- %[ %] Write report')
+vim.api.nvim_win_set_cursor(0, { due_line, 0 })
+ui_answer = '+7d'
+tasks.set_due()
+local due7 = os.date('%Y-%m-%d', os.time() + 7 * 86400)
+local due_text = buf_line(due_line)
+ok(due_text:find('📅 ' .. due7, 1, true) ~= nil, 'set_due wrote the ISO date ' .. due7)
+
+ui_answer = 'none'
+tasks.set_due()
+ok(buf_line(due_line):find('📅', 1, true) == nil, 'set_due none cleared the due date')
+
+notified_before = #notified
+vim.api.nvim_win_set_cursor(0, { due_line, 0 })
+ui_answer = 'not-a-date'
+tasks.set_due()
+ok(#notified == notified_before + 1
+    and notified[#notified]:find('could not parse', 1, true) ~= nil,
+    'invalid due input surfaces ft\'s parse error')
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 if failures > 0 then

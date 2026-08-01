@@ -8,8 +8,9 @@
 --- Features:
 --- - `:FtFollow` or `gf` — follow [[Wikilinks]] to the target note or heading
 --- - Wikilink autocompletion — auto-triggers on `[[`, completes note titles
---- - Task operations — `:FtTaskCreate` / `:FtTaskDone` / `:FtTaskCancel`
----   (create at cursor with inline `due:+2d` syntax, mark done/cancelled)
+--- - Task operations — `:FtTaskCreate` / `:FtTaskDone` / `:FtTaskCancel` /
+---   `:FtTaskDue` (create at cursor with inline `due:+2d` syntax, mark
+---   done/cancelled, set/clear the due date)
 ---
 --- Setup:
 --- ```lua
@@ -29,6 +30,7 @@
 ---             create = '<leader>tt',
 ---             done = '<leader>td',
 ---             cancel = '<leader>tc',
+---             due = '<leader>te',
 ---         },
 ---     },
 --- })
@@ -67,6 +69,7 @@ local defaults = {
             create = '<leader>tt',
             done = '<leader>td',
             cancel = '<leader>tc',
+            due = '<leader>te',
         },
     },
 }
@@ -129,6 +132,9 @@ function M.setup(user_opts)
     register_command('FtTaskCancel', function()
         tasks.cancel()
     end, 'Cancel the task under the cursor')
+    register_command('FtTaskDue', function()
+        tasks.set_due()
+    end, 'Set or clear the due date of the task under the cursor')
 end
 
 --- Soft version check: warn when the installed ft binary is older than
@@ -172,6 +178,7 @@ function M._setup_buffer(bufnr)
         create = tasks.create,
         done = tasks.done,
         cancel = tasks.cancel,
+        due = tasks.set_due,
     }) do
         local key = task_keymaps[action]
         if key then

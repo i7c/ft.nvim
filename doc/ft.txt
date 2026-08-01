@@ -113,6 +113,14 @@ Commands:                                      *ft-tasks-commands*
   Cancel the task under the cursor (`ft tasks cancel`). Cancelling an
   already-cancelled task is a no-op (ft treats it as success).
 
+:FtTaskDue                                      *:FtTaskDue*
+
+  Set or clear the due date of the task under the cursor
+  (`ft tasks edit --due`). Prompts for the date; ft's date syntax
+  applies — `+2d`, `today`, `next monday`, or an ISO date. Enter
+  `none` to clear the due date. An empty prompt cancels (nothing
+  changes).
+
 All three operations save the buffer to disk before running ft, and
 reload it afterwards — undo history is preserved (the mutation is one
 undoable step). The note-index cache is marked dirty so completion
@@ -125,6 +133,7 @@ Keymaps:                                        *ft-tasks-keymaps*
     <leader>tt   create a task at the cursor line
     <leader>td   mark the task under the cursor done
     <leader>tc   cancel the task under the cursor
+    <leader>te   set/clear the due date of the task under the cursor
 
   To change or disable them:
 
@@ -135,6 +144,7 @@ Keymaps:                                        *ft-tasks-keymaps*
         create = '<leader>tn',
         done = false,       -- disable: no keymap, command still works
         cancel = '<leader>tx',
+        due = '<leader>tdue',
       },
     },
   })
