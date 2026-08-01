@@ -61,15 +61,19 @@ same split the TUI's own quickline uses, just mirrored in Lua).
 Done/cancel pass the vault-relative path and cursor line as the
 selector (`ft tasks complete <rel>:<line> --yes`). `--yes` makes the
 multi-candidate path deterministic (error listing candidates) rather
-than interactive — under `vim.fn.system` stdin is never a TTY anyway,
+than interactive — under the rpc sync call stdin is never a TTY anyway,
 but the flag pins the behavior. `--json-errors` gives structured
-stderr; `vim.fn.system` merges stderr into the returned string, so on
-failure the plugin decodes `{"error": ...}` and classifies:
+stderr; the rpc sync call merges both streams, so on failure the plugin
+decodes `{"error": ...}` and classifies:
 
-- "is already done" / "is already cancelled" → idempotent: info notify,
-  no reload, no error.
-- "is not a task" / "line not found" / "line changed" → warn/error
-  notify, no reload.
+- complete on already-done: ft exits 1 with `is already done` →
+  idempotent: info notify, no reload, no error.
+- cancel on already-cancelled: **ft's CLI already exits 0** (the
+  `AlreadyCancelled` case is skipped, not errored) → the plugin treats
+  it as a plain success: reload, no error, no classification needed.
+- "no tasks match selector" (line is not a task) → warn notify, no
+  reload.
+- everything else (line changed on disk, …) → error notify, no reload.
 
 Substring classification of ft's stable error strings is pinned by
 Tier 2 stub tests (see D5).
@@ -83,20 +87,28 @@ Unconditional write keeps the disk copy fresh even for externally
 changed buffers; the check catches every failure mode without parsing
 write errors.
 
-### D4. Reload = in-place sync, not `:edit`
+### D4. Reload = `:edit`, which preserves undo and file-change state
 
-After a successful mutation: `nvim_buf_set_lines(buf, 0, -1, false,
-readfile(abs))` replaces the whole buffer in one undo step, then
-`modified = false`. Undo history survives (each user requirement), the
-cursor is preserved by line number, and no BufWritePost fires (we
-mark the note-index cache dirty manually instead). For create, the
-cursor is explicitly set to `{N, 0}` where N was the pre-mutation
-cursor line — `Position::AtLine` guarantees the new task occupies line
-N. For done/cancel, the cursor is left untouched (the completed line
-stays at N; a recurring task's next instance lands at N, which is an
-acceptable resting spot).
+After a successful mutation the plugin runs `:edit` on the buffer. This
+was chosen after verifying empirically that `:edit` does **not** wipe
+undo history: the reload lands as a single undoable step, so a later
+`u` returns to the pre-mutation buffer state (pinned by a Tier 2 test
+using the documented `let &g:undolevels = &g:undolevels` undo-block
+break). `:edit` also refreshes nvim's file-change tracking — the
+`set_lines` alternative left the buffer's read-timestamp stale, so the
+next `:write` prompted a spurious "file has been changed since reading"
+confirmation. Buffer is unmodified at reload time (saved in preflight),
+so plain `:edit` never hits E37. For create, the cursor is explicitly
+set to `{N, 0}` where N was the pre-mutation cursor line —
+`Position::AtLine` guarantees the new task occupies line N. For
+done/cancel, the cursor is left untouched (the completed line stays at
+N; a recurring task's next instance lands at N, which is an acceptable
+resting spot).
 
-- *Alternative rejected:* `:edit` — wipes undo (user requirement 8).
+- *Alternative rejected:* whole-buffer `nvim_buf_set_lines` + `nomodified`
+  — leaves b_mtime stale (spurious changed-file prompts), needs manual
+  `modified` juggling, and its one-undo-step claim is no better than
+  `:edit`'s.
 
 ### D5. Test strategy: three tiers, stub binary for editor behavior
 
@@ -134,10 +146,6 @@ prefix from an absolute path — used for both `--file` and the selector.
   English error text ("is already done") → Mitigation: Tier 2 stub tests
   pin the classification; the strings come from `translate_complete_error`
   / `translate_cancel_error`, which are stable protocol surface.
-- **[Whole-buffer reload cost]** `readfile` + full `set_lines` on huge
-  notes is heavier than `:edit`'s incremental reload → Mitigation:
-  acceptable for note-sized files; done/cancel mutate one line, create
-  inserts one line.
 - **[Recurring tasks shift lines]** Completing a recurring task inserts
   the next instance *above* the completed line, moving the completed
   task to N+1; the plugin keeps the cursor at N (on the next instance).

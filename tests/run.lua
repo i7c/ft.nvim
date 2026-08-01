@@ -96,6 +96,63 @@ ok(not rpc.version_lt({ 0, 1, 0 }, { 0, 1, 0 }), 'version_lt is false for equal 
 ok(rpc.version_lt({ 0, 0, 9 }, { 0, 1, 0 }), 'version_lt catches older patch')
 ok(not rpc.version_lt({ 1, 0, 0 }, { 0, 9, 9 }), 'version_lt: major wins')
 
+-- ── 3. tasks.parse_due ────────────────────────────────────────────────────
+
+local tasks = require('ft.tasks')
+
+local function check_parse(input, want_desc, want_due, want_err)
+    local p = tasks.parse_due(input)
+    ok(p.description == want_desc, 'parse_due(' .. vim.inspect(input) .. ') description')
+    ok(p.due == want_due, 'parse_due(' .. vim.inspect(input) .. ') due')
+    ok(p.error == want_err, 'parse_due(' .. vim.inspect(input) .. ') error')
+end
+
+-- Plain text: no token.
+check_parse('Buy milk', 'Buy milk', nil, nil)
+-- Relative / keyword / ISO forms pass through verbatim (ft resolves them).
+check_parse('Write report due:+2d', 'Write report', '+2d', nil)
+check_parse('Call dentist due:today', 'Call dentist', 'today', nil)
+check_parse('Ship due:2026-05-10', 'Ship', '2026-05-10', nil)
+-- Case-insensitive prefix; value verbatim.
+check_parse('DUE:tomorrow urgent', 'urgent', 'tomorrow', nil)
+check_parse('Foo Due:Friday', 'Foo', 'Friday', nil)
+-- Backslash escape: literal description token, no due.
+check_parse('Send mail \\due:tomorrow', 'Send mail due:tomorrow', nil, nil)
+-- Repeated token is an error (first wins for the value).
+check_parse('Foo due:today due:friday', 'Foo', 'today', '`due:` specified twice')
+-- Empty value is an error.
+check_parse('Foo due: bar', 'Foo bar', nil, '`due:` requires a value')
+-- Token-only input leaves an empty description (caller rejects it).
+check_parse('due:tomorrow', '', 'tomorrow', nil)
+-- Tags stay inline; unknown colon tokens stay literal.
+check_parse('buy milk #errands', 'buy milk #errands', nil, nil)
+check_parse('email Bob re:invoice', 'email Bob re:invoice', nil, nil)
+-- Empty / nil input.
+check_parse('', '', nil, nil)
+check_parse(nil, '', nil, nil)
+-- Unicode description untouched.
+check_parse('обзор кода due:tomorrow', 'обзор кода', 'tomorrow', nil)
+
+-- ── 4. vault.relativize ─────────────────────────────────────────────────────
+
+vault.reset()
+vim.fn.setenv('FT_VAULT', '/tmp/fake-vault')
+vault.discover(nil)
+ok(vault.relativize('/tmp/fake-vault/Notes/Apple.md') == 'Notes/Apple.md',
+    'relativize yields vault-relative path')
+ok(vault.relativize('/tmp/fake-vault/Apple.md') == 'Apple.md',
+    'relativize handles a root-level file')
+ok(vault.relativize('/tmp/fake-vault') == nil, 'relativize: root itself is nil')
+ok(vault.relativize('/tmp/fake-vault/') == nil, 'relativize: root with trailing slash is nil')
+ok(vault.relativize('/tmp/other/Apple.md') == nil, 'relativize: outside the vault is nil')
+ok(vault.relativize('/tmp/fake-vault2/Apple.md') == nil,
+    'relativize: sibling prefix is not inside the vault')
+ok(vault.relativize(nil) == nil, 'relativize: nil path is nil')
+vault.reset()
+vim.fn.setenv('FT_VAULT', '')
+ok(vault.relativize('/tmp/fake-vault/Apple.md') == nil,
+    'relativize: nil without a discovered vault')
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 if failures > 0 then

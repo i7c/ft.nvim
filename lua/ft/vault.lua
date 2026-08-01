@@ -102,6 +102,27 @@ function M.is_inside_vault(path)
     return p:sub(1, #prefix) == prefix
 end
 
+--- Convert an absolute path into a vault-relative path (the form
+--- `ft tasks create --file` and task selectors expect). Returns nil
+--- when the path is not a file inside the vault.
+--- @param path string  Absolute path (or resolvable to one)
+--- @return string|nil  Vault-relative path with forward slashes, or nil
+function M.relativize(path)
+    if not cached_vault or not path or #path == 0 then
+        return nil
+    end
+    local p = vim.fn.fnamemodify(path, ':p'):gsub('/+$', '')
+    local v = vim.fn.fnamemodify(cached_vault, ':p'):gsub('/+$', '')
+    if p == v then
+        return nil -- the root itself is not a file inside the vault
+    end
+    local prefix = v .. '/'
+    if p:sub(1, #prefix) == prefix then
+        return p:sub(#prefix + 1)
+    end
+    return nil
+end
+
 --- Reset the cached vault (useful for testing or vault switching).
 function M.reset()
     cached_vault = nil

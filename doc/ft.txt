@@ -11,6 +11,7 @@ Features:
   - Same-file anchors: `[[#heading]]` jumps within the current buffer
   - Handles aliases: `[[Target|Display]]` and anchors: `[[Target#heading]]`
   - Autocompletion: note titles auto-complete when typing `[[`
+  - Task operations: create, mark done, and cancel tasks from inside nvim
 
 Note: `![[embeds]]` inline rendering is no longer supported — it was
 removed in the architecture v2 rework; the plugin is not a Markdown
@@ -65,6 +66,77 @@ Keymap:                                       *ft-follow-keymap*
 >lua
   require('ft').setup({
     follow = { keymap = '<leader>wf' },
+  })
+<
+
+==============================================================================
+TASK OPERATIONS                                  *ft-tasks*
+
+Create, mark done, and cancel tasks from inside nvim. All task
+serialization and date logic lives in the `ft` CLI (`ft tasks`); the
+plugin only turns the cursor position and your input into argv, then
+reloads the buffer.
+
+Commands:                                      *ft-tasks-commands*
+
+:FtTaskCreate                                  *:FtTaskCreate*
+
+  Create a task at the cursor line (existing content is pushed down).
+  Prompts for the description via |vim.ui.input|; when the current
+  line has text, the prompt is pre-filled with it, so confirming
+  "turns the current line into a task". After success the buffer is
+  reloaded and the cursor lands on the new task.
+
+  Inline due dates (same syntax as the ft TUI quickline): a `due:`
+  token is extracted and passed to `ft tasks create --due`, which
+  resolves relative / keyword / ISO dates into the task line's ISO
+  date. No need to type ISO dates yourself:
+
+    Buy milk due:+2d      due in two days
+    Call dentist due:today
+    Review due:next monday
+
+  Escape with a backslash to keep the text literal: `\due:tomorrow`.
+  A repeated or empty `due:` aborts with an error. Duplicates are
+  allowed (ft's `--force` is always passed).
+
+:FtTaskDone                                     *:FtTaskDone*
+
+  Mark the task under the cursor done (`ft tasks complete` with the
+  exact `<file>:<line>` selector). Recurring tasks get their next
+  instance written. Completing an already-done task is a no-op with
+  an info message, not an error. A line that is not a task shows ft's
+  warning.
+
+:FtTaskCancel                                  *:FtTaskCancel*
+
+  Cancel the task under the cursor (`ft tasks cancel`). Cancelling an
+  already-cancelled task is a no-op (ft treats it as success).
+
+All three operations save the buffer to disk before running ft, and
+reload it afterwards — undo history is preserved (the mutation is one
+undoable step). The note-index cache is marked dirty so completion
+stays fresh.
+
+Keymaps:                                        *ft-tasks-keymaps*
+
+  Default keymaps (per markdown buffer inside a vault):
+
+    <leader>tt   create a task at the cursor line
+    <leader>td   mark the task under the cursor done
+    <leader>tc   cancel the task under the cursor
+
+  To change or disable them:
+
+>lua
+  require('ft').setup({
+    tasks = {
+      keymaps = {
+        create = '<leader>tn',
+        done = false,       -- disable: no keymap, command still works
+        cancel = '<leader>tx',
+      },
+    },
   })
 <
 

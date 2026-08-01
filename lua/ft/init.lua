@@ -8,6 +8,8 @@
 --- Features:
 --- - `:FtFollow` or `gf` — follow [[Wikilinks]] to the target note or heading
 --- - Wikilink autocompletion — auto-triggers on `[[`, completes note titles
+--- - Task operations — `:FtTaskCreate` / `:FtTaskDone` / `:FtTaskCancel`
+---   (create at cursor with inline `due:+2d` syntax, mark done/cancelled)
 ---
 --- Setup:
 --- ```lua
@@ -22,6 +24,13 @@
 ---     picker = {
 ---         backend = 'auto', -- 'auto' | 'select' | 'telescope' | 'fzf-lua'
 ---     },
+---     tasks = {
+---         keymaps = {        -- set any to false to disable
+---             create = '<leader>tt',
+---             done = '<leader>td',
+---             cancel = '<leader>tc',
+---         },
+---     },
 --- })
 --- ```
 ---
@@ -30,6 +39,7 @@
 local follow = require('ft.follow')
 local picker = require('ft.picker')
 local rpc = require('ft.rpc')
+local tasks = require('ft.tasks')
 local vault = require('ft.vault')
 
 local M = {}
@@ -51,6 +61,13 @@ local defaults = {
     },
     picker = {
         backend = 'auto',
+    },
+    tasks = {
+        keymaps = {
+            create = '<leader>tt',
+            done = '<leader>td',
+            cancel = '<leader>tc',
+        },
     },
 }
 
@@ -91,10 +108,27 @@ function M.setup(user_opts)
     })
 
     -- Register user commands (available globally even outside markdown
-    -- files, will show an appropriate error).
-    vim.api.nvim_create_user_command('FtFollow', function()
+    -- files, will show an appropriate error). Guarded so setup() can be
+    -- re-called (lazy reload, config changes) without duplicate commands.
+    local function register_command(name, fn, desc)
+        if vim.fn.exists(':' .. name) == 0 then
+            vim.api.nvim_create_user_command(name, fn, { desc = desc })
+        end
+    end
+
+    register_command('FtFollow', function()
         follow.follow_wikilink()
-    end, { desc = 'Follow [[wikilink]] under cursor' })
+    end, 'Follow [[wikilink]] under cursor')
+
+    register_command('FtTaskCreate', function()
+        tasks.create()
+    end, 'Create a task at the cursor line')
+    register_command('FtTaskDone', function()
+        tasks.done()
+    end, 'Mark the task under the cursor done')
+    register_command('FtTaskCancel', function()
+        tasks.cancel()
+    end, 'Cancel the task under the cursor')
 end
 
 --- Soft version check: warn when the installed ft binary is older than
@@ -130,6 +164,22 @@ function M._setup_buffer(bufnr)
         vim.keymap.set('n', config.follow.keymap, function()
             follow.follow_wikilink()
         end, { desc = 'ft: follow [[wikilink]] under cursor', buffer = bufnr })
+    end
+
+    -- ── Task operations ─────────────────────────────────────────────
+    local task_keymaps = (config.tasks or {}).keymaps or {}
+    for action, fn in pairs({
+        create = tasks.create,
+        done = tasks.done,
+        cancel = tasks.cancel,
+    }) do
+        local key = task_keymaps[action]
+        if key then
+            vim.keymap.set('n', key, fn, {
+                desc = 'ft: task ' .. action,
+                buffer = bufnr,
+            })
+        end
     end
 
     -- ── Autocompletion ───────────────────────────────────────────────

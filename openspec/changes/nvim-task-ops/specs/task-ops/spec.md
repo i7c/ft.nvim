@@ -114,8 +114,9 @@ reload from disk.
 
 The plugin SHALL mark the task under the cursor cancelled by running
 `ft tasks cancel` with a `<file>:<line>` selector for the current buffer
-and cursor line. Cancelling an already-cancelled task SHALL do nothing
-harmful: an info notification, no error. After success the buffer SHALL
+and cursor line. Cancelling an already-cancelled task SHALL be a no-op:
+ft's CLI already treats it as success (exit 0, no file change), so the
+plugin reloads and raises no error. After success the buffer SHALL
 reload from disk.
 
 #### Scenario: Cancel the task under the cursor
@@ -124,12 +125,12 @@ reload from disk.
 - **THEN** `ft tasks cancel <relpath>:<line>` runs, the buffer reloads,
   and the line shows the task as cancelled
 
-#### Scenario: Already cancelled is idempotent
+#### Scenario: Already cancelled is a no-op
 
 - **WHEN** the cursor is on a task already cancelled and the user invokes
   cancel
-- **THEN** no error is raised; the user sees an info notification and the
-  file is left untouched
+- **THEN** no error is raised; ft's CLI exits 0 and the file is left
+  untouched
 
 ### Requirement: Save before mutating
 
@@ -153,10 +154,11 @@ error notification and no ft command SHALL run.
 
 ### Requirement: Reload preserves undo history
 
-After a successful mutation the plugin SHALL sync the buffer to the
-on-disk content in place, preserving the buffer's undo history (no
-`:edit`-style reload that clears it). The reload SHALL mark the note
-index cache dirty so derived data is rebuilt.
+After a successful mutation the plugin SHALL reload the buffer to the
+on-disk content in a way that preserves the buffer's undo history:
+undo must return to the pre-mutation buffer state rather than being
+wiped. The reload SHALL mark the note index cache dirty so derived
+data is rebuilt.
 
 #### Scenario: Undo survives a task operation
 

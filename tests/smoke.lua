@@ -9,6 +9,9 @@
 ---   3. the completion index rebuilds (async) and finds the notes
 ---   4. a legacy `embeds` config key loads without error and embed.lua
 ---      no longer exists (embeds removal)
+---   5. task operations: create at cursor (inline due:+2d → ISO date,
+---      duplicate allowed), done, cancel, idempotent already-done, and
+---      non-task warning
 
 local failures = 0
 
@@ -101,6 +104,94 @@ ok(#banana_hits == 1 and banana_hits[1].title == 'Banana', 'completion finds Ban
 local apple_hits = cache.search('app', 5)
 ok(#apple_hits == 1 and apple_hits[1].title == 'Apple', 'completion finds Apple')
 ok(cache.generation() >= 1, 'generation counter bumped on rebuild')
+
+-- ── 5. Task operations with the real binary ────────────────────────────────
+
+local tasks = require('ft.tasks')
+
+-- Mock vim.ui.input for the create prompt: `ui_answer` nil → prefill.
+local ui_answer = nil
+vim.ui.input = function(opts, cb)
+    cb(ui_answer ~= nil and ui_answer or opts.default)
+end
+
+local task_note = base .. '/Notes/Tasks.md'
+vim.fn.writefile({ '# Tasks', '', '- [ ] Write report', '- [ ] Call dentist' }, task_note)
+vim.cmd('edit ' .. vim.fn.fnameescape(task_note))
+
+local function buf_line(n)
+    return vim.api.nvim_buf_get_lines(0, n - 1, n, false)[1]
+end
+local function find_line(pat)
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+        if l:match(pat) then
+            return i
+        end
+    end
+    return nil
+end
+
+local today = os.date('%Y-%m-%d')
+local due2 = os.date('%Y-%m-%d', os.time() + 2 * 86400)
+
+-- Create on the empty line 2 with an inline relative due date.
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+ui_answer = 'Write report due:+2d'
+tasks.create()
+local created = buf_line(2)
+ok(created:match('%- %[ %] Write report') ~= nil, 'create inserted the task at the cursor line')
+ok(created:find('📅 ' .. due2, 1, true) ~= nil, 'due:+2d became the ISO due date ' .. due2)
+ok(created:find('➕ ' .. today, 1, true) ~= nil, 'created date is today')
+local cur = vim.api.nvim_win_get_cursor(0)
+ok(cur[1] == 2 and cur[2] == 0, 'cursor lands on the new task')
+ok(vim.bo[0].modified == false, 'buffer is clean after the create reload')
+
+-- Duplicate create is allowed (--force): a second identical line appears.
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+ui_answer = 'Write report due:+2d'
+tasks.create()
+local dup_count = 0
+for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    if l == created then
+        dup_count = dup_count + 1
+    end
+end
+ok(dup_count == 2, 'duplicate create allowed (' .. dup_count .. ' identical task lines)')
+
+-- Done: the task under the cursor becomes - [x] with ✅ today.
+local done_line = find_line('^%- %[ %] Write report')
+vim.api.nvim_win_set_cursor(0, { done_line, 0 })
+tasks.done()
+local done_text = buf_line(done_line)
+ok(done_text:match('%- %[x%] Write report') ~= nil and done_text:find('✅ ' .. today, 1, true) ~= nil,
+    'done rewrote the line with ✅ today')
+
+-- Done on an already-done task: info notification, file untouched.
+local notified_before = #notified
+vim.api.nvim_win_set_cursor(0, { done_line, 0 })
+tasks.done()
+ok(#notified == notified_before + 1
+    and notified[#notified]:find('is already done', 1, true) ~= nil,
+    'already-done surfaces an info notification, not an error')
+ok(buf_line(done_line) == done_text, 'already-done leaves the line untouched')
+
+-- Non-task line: ft\'s "no tasks match selector" warning.
+notified_before = #notified
+vim.api.nvim_win_set_cursor(0, { 1, 0 }) -- '# Tasks'
+tasks.done()
+ok(#notified == notified_before + 1
+    and notified[#notified]:find('no tasks match selector', 1, true) ~= nil,
+    'non-task line surfaces a warning')
+
+-- Cancel: the task under the cursor becomes - [-] with ❌ today.
+local cancel_line = find_line('Call dentist')
+vim.api.nvim_win_set_cursor(0, { cancel_line, 0 })
+tasks.cancel()
+local cancel_text = buf_line(cancel_line)
+ok(cancel_text:match('%- %[%-%] Call dentist') ~= nil
+    and cancel_text:find('❌ ' .. today, 1, true) ~= nil,
+    'cancel rewrote the line with [-] … ❌ today')
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 

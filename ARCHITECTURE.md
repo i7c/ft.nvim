@@ -99,6 +99,13 @@ this file and the plugin's `min_ft_version` check change with it.
 | `ft --version` | — | `init.lua` version check | Soft warn only (see `MIN_FT_VERSION`) |
 | `ft graph query` | `node where kind in {Note, Ghost}` `--format ndjson` | `cache.lua` (note index) | Ghost nodes included so links to not-yet-created notes complete |
 | `ft find` | `<query>` `--format ndjson --limit 1 --include-headings` | `follow.lua` | Resolves `[[Target]]`, `[[Target#Heading]]` to a vault-relative path + line |
+| `ft tasks create` | `<description>` `--file <rel> --at-line <N> --force [--due <date>] --json-errors` | `tasks.lua` (create at cursor) | `--force` makes duplicates allowed; the plugin extracts the inline `due:` token itself (the CLI does not parse quickline syntax) and passes the raw value through — ft resolves relative/keyword dates to ISO |
+| `ft tasks complete` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (done) | Exact selector for the task under the cursor; already-done exits 1 with `is already done` (classified as info, not error); recurring tasks write their next instance |
+| `ft tasks cancel` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (cancel) | Already-cancelled already exits 0 (idempotent at the CLI) |
+
+Error classification for the update ops matches ft's stable error
+strings (`is already done`, `no tasks match selector`), pinned by the
+Tier 2 stub tests.
 
 The plugin's `MIN_FT_VERSION` floor (currently `0.1.0`) is checked at
 setup: an older binary produces a warning, never a failure.
@@ -110,8 +117,7 @@ needed for them are deferred to the changes that build the features:
 
 | Feature | ft command to add / use | Notes |
 |---|---|---|
-| Create task / subtask in place | `ft tasks create --at-line N --file <buf>` | Exists today; at-line position + canonical serialization |
-| Complete / toggle task | `ft tasks complete` line selector | May need an explicit line selector for the current file |
+| Create task / subtask in place | `ft tasks create --at-line N --file <buf>` | Create-at-line is **consumed today** (`tasks.lua`); subtask creation needs a new CLI flag — `Position::Subtask` exists in ft-core but the CLI only exposes `--at-line`/`--under-heading`/`--append`. Deferred: the ft change lands first, then a follow-up plugin session adds `:FtTaskSubtask`. |
 | Gather flow | `ft notes gather --link [[X]] --json` | `--json` exists; async tier required (git-blame scale) |
 | Pulse | `ft notes pulse --json` | Exists today |
 | Synth notes | `ft notes synth scaffold … --no-edit` (+ a future render-only `--print` mode) | `--print` would emit the note body to stdout for in-buffer splicing |
