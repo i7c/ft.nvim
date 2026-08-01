@@ -13,6 +13,7 @@
 
 local wikilink = require('ft.wikilink')
 local vault = require('ft.vault')
+local rpc = require('ft.rpc')
 
 local M = {}
 
@@ -30,13 +31,7 @@ function M.follow_wikilink()
         return false
     end
 
-    -- 2. Ensure ft is available
-    if not vault.ft_available() then
-        vim.notify('ft.nvim requires the `ft` CLI tool.', vim.log.levels.ERROR)
-        return false
-    end
-
-    -- 3. Parse the current line for wikilinks
+    -- 2. Parse the current line for wikilinks
     local line = vim.api.nvim_get_current_line()
     local cursor = vim.api.nvim_win_get_cursor(0)
     local col = cursor[2] -- 0-indexed byte column
@@ -48,22 +43,19 @@ function M.follow_wikilink()
         return false
     end
 
-    -- 4. Handle same-file anchor: [[#Heading]]
+    -- 3. Handle same-file anchor: [[#Heading]]
     if wl.target == '' and wl.anchor then
         M._follow_anchor_in_buffer(wl.anchor)
         return true
     end
 
-    -- 5. Build the search query for ft find.
-    --    For [[Target#Anchor]], pass "Target#Anchor" so ft find can
-    --    match both the file and the heading in one query.
+    -- 4. Resolve the target with ft find.
     local query = wl.target
     if wl.anchor then
         query = query .. '#' .. wl.anchor
     end
 
-    -- 6. Use ft find to resolve the target to a vault-relative path
-    local stdout, exit_code = vault.ft_run({
+    local stdout, exit_code = rpc.call({
         'find',
         query,
         '--format',
@@ -81,18 +73,18 @@ function M.follow_wikilink()
         return true
     end
 
-    -- 7. Parse the ndjson result
+    -- 5. Parse the ndjson result
     local result = vim.json.decode(stdout:match('[^\n]+'))
     if not result or not result.path then
         vim.notify("ft: unexpected response from 'ft find'", vim.log.levels.ERROR)
         return true
     end
 
-    -- 8. Open the file
+    -- 6. Open the file
     local abs_path = vault_path .. '/' .. result.path
     vim.cmd('edit ' .. vim.fn.fnameescape(abs_path))
 
-    -- 9. Jump to heading line if we found one
+    -- 7. Jump to heading line if we found one
     if result.line then
         vim.api.nvim_win_set_cursor(0, { result.line, 0 })
         vim.cmd('normal! zz') -- center the screen

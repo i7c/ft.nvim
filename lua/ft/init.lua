@@ -1,9 +1,13 @@
 --- ft.nvim — Neovim integration for `ft` (Obsidian vault toolkit).
 ---
+--- The plugin is editor glue plus a transport: all domain logic (task
+--- parsing/serialization, queries, dates, synth callouts) lives in the
+--- `ft` CLI, driven through the single `ft.rpc` seam. See
+--- ARCHITECTURE.md for the full model.
+---
 --- Features:
 --- - `:FtFollow` or `gf` — follow [[Wikilinks]] to the target note or heading
 --- - Wikilink autocompletion — auto-triggers on `[[`, completes note titles
---- - Embed rendering — shows `![[linked note]]` content inline in normal mode
 ---
 --- Setup:
 --- ```lua
@@ -15,8 +19,8 @@
 ---     completion = {
 ---         enable = true,  -- enable wikilink autocompletion
 ---     },
----     embeds = {
----         enable = true,  -- enable embed rendering in normal mode
+---     picker = {
+---         backend = 'auto', -- 'auto' | 'select' | 'telescope' | 'fzf-lua'
 ---     },
 --- })
 --- ```
@@ -24,12 +28,18 @@
 --- @module ft
 
 local follow = require('ft.follow')
+local picker = require('ft.picker')
+local rpc = require('ft.rpc')
 local vault = require('ft.vault')
 
 local M = {}
 
 -- Autocommand group for buffer-level setup.
 local setup_augroup = vim.api.nvim_create_augroup('ft_setup', { clear = true })
+
+-- Minimum `ft` binary version the plugin's protocol contract assumes.
+-- See ARCHITECTURE.md, "Protocol contract".
+local MIN_FT_VERSION = { 0, 1, 0 }
 
 local defaults = {
     vault = nil,
@@ -39,9 +49,8 @@ local defaults = {
     completion = {
         enable = true,
     },
-    embeds = {
-        enable = true,
-        max_lines = 20,  -- max content lines per embedded note
+    picker = {
+        backend = 'auto',
     },
 }
 
@@ -53,19 +62,18 @@ local config = {}
 ---
 --- @param opts table|nil  Configuration options
 function M.setup(user_opts)
-    -- Accept both `embed` and `embeds` config keys (user-friendly alias).
-    local opts = vim.deepcopy(user_opts or {})
-    if opts.embed ~= nil and opts.embeds == nil then
-        opts.embeds = opts.embed
-    end
-    opts.embed = nil
-
-    config = vim.tbl_deep_extend('keep', opts or {}, defaults)
+    config = vim.tbl_deep_extend('keep', user_opts or {}, defaults)
 
     -- Discover vault (best-effort; discovery state is cached so follow
     -- can check it at invocation time). Do this early so submodules
     -- that need the vault path can rely on it during setup.
     vault.discover(config.vault)
+
+    -- Configure the picker seam.
+    picker.setup(config.picker)
+
+    -- Soft-check the ft binary version: warn, never fail.
+    M._check_ft_version()
 
     -- Defer per-buffer setup until a markdown file is opened inside the vault.
     vim.api.nvim_create_autocmd('FileType', {
@@ -89,6 +97,31 @@ function M.setup(user_opts)
     end, { desc = 'Follow [[wikilink]] under cursor' })
 end
 
+--- Soft version check: warn when the installed ft binary is older than
+--- MIN_FT_VERSION. Never fails — the protocol contract is a floor, not
+--- a gate.
+function M._check_ft_version()
+    local stdout, exit_code = rpc.call({ '--version' })
+    if exit_code ~= 0 or not stdout then
+        return -- rpc.call already notified the missing-binary case
+    end
+    local version = rpc.parse_version(stdout)
+    if version and rpc.version_lt(version, MIN_FT_VERSION) then
+        vim.notify(
+            string.format(
+                'ft.nvim: installed ft %s is older than the required %d.%d.%d'
+                    .. ' — some features may misbehave. Upgrade ft or set'
+                    .. ' $FT_BIN to a newer build.',
+                stdout:match('%S+$') or stdout:gsub('%s+$', ''),
+                MIN_FT_VERSION[1],
+                MIN_FT_VERSION[2],
+                MIN_FT_VERSION[3]
+            ),
+            vim.log.levels.WARN
+        )
+    end
+end
+
 --- Per-buffer setup. Called once per markdown buffer that's inside a vault.
 --- @param bufnr integer
 function M._setup_buffer(bufnr)
@@ -104,14 +137,6 @@ function M._setup_buffer(bufnr)
         local ok, complete = pcall(require, 'ft.complete')
         if ok then
             complete.setup(config.completion)
-        end
-    end
-
-    -- ── Embed rendering ──────────────────────────────────────────────
-    if config.embeds and config.embeds.enable then
-        local ok, embed = pcall(require, 'ft.embed')
-        if ok then
-            embed.setup(config.embeds)
         end
     end
 end

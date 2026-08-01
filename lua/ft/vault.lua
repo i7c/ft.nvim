@@ -1,11 +1,15 @@
---- Vault discovery and ft CLI path resolution.
+--- Vault discovery.
 ---
 --- Tries (in order):
---- 1. `FT_VAULT` env var
+--- 1. `FT_VAULT` env var (inherited from the ft TUI when nvim is
+---    launched as $EDITOR inside one — the common case)
 --- 2. User's explicit `vault` config passed to setup()
 --- 3. Walk up from the current buffer's directory (or cwd) for `.obsidian/`
 ---
 --- The resolved vault root is cached so subsequent calls are instant.
+--- This module is the ONLY place vault discovery lives; it has no
+--- dependencies and never spawns the `ft` binary — talk to ft through
+--- `ft.rpc` instead.
 ---
 --- @module ft.vault
 
@@ -14,46 +18,6 @@ local M = {}
 -- Cache the resolved vault root.
 --- @type string|nil
 local cached_vault = nil
-
---- Check if `ft` is installed and on PATH.
---- @return boolean
-function M.ft_available()
-    return vim.fn.executable('ft') == 1
-end
-
---- Build the ft command args, optionally prepending `--vault`.
---- When we know the vault root explicitly, pass it so ft doesn't
---- have to walk up on every invocation.
---- @param args string[]  e.g. `{'find', 'Apple', '--format', 'ndjson'}`
---- @return string[]
-function M.ft_cmd(args)
-    if not M.ft_available() then
-        error(
-            'ft.nvim requires the `ft` CLI tool.\n'
-                .. 'Install with: cargo install --path /path/to/ft'
-        )
-    end
-
-    if cached_vault then
-        return vim.list_extend({ 'ft', '--vault', cached_vault }, args)
-    end
-    return vim.list_extend({ 'ft' }, args)
-end
-
---- Run an ft command synchronously and return (stdout, exit_code).
---- @param args string[]
---- @return string|nil stdout  nil on errors before command execution
---- @return integer exit_code
-function M.ft_run(args)
-    local ok, cmd = pcall(M.ft_cmd, args)
-    if not ok then
-        vim.notify(cmd, vim.log.levels.ERROR)
-        return nil, -1
-    end
-
-    local stdout = vim.fn.system(cmd)
-    return stdout, vim.v.shell_error
-end
 
 --- Discover the vault root path.
 --- Returns the cached value if already discovered.
@@ -119,6 +83,23 @@ function M.walk_up_for_obsidian(start_dir)
     end
 
     return nil
+end
+
+--- True when `path` is a file inside the vault root.
+--- Used by cache invalidation to ignore writes outside the vault.
+--- @param path string|nil  Absolute or relative path
+--- @return boolean
+function M.is_inside_vault(path)
+    if not cached_vault or not path or #path == 0 then
+        return false
+    end
+    local p = vim.fn.fnamemodify(path, ':p')
+    local v = vim.fn.fnamemodify(cached_vault, ':p')
+    if p == v then
+        return true
+    end
+    local prefix = v .. '/'
+    return p:sub(1, #prefix) == prefix
 end
 
 --- Reset the cached vault (useful for testing or vault switching).

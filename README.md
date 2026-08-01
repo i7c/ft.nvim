@@ -2,13 +2,14 @@
 
 Neovim plugin for [ft](https://github.com/i7c/ft) — an Obsidian vault CLI toolkit.
 
-Navigate `[[wikilinks]]`, autocomplete note titles, and render `![[embeds]]` inline — all inside Neovim, backed by `ft`'s fast vault-aware link resolution.
+Navigate `[[wikilinks]]` and autocomplete note titles — all inside Neovim, backed by `ft`'s fast vault-aware link resolution.
+
+> **Note:** `![[embeds]]` inline rendering is **no longer supported**. It was removed in the architecture v2 rework; the plugin is not a Markdown renderer (see [ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## Features
 
 - **Follow wikilinks** — `gf` on `[[Target]]`, `[[Target|Alias]]`, `[[Target#Heading]]`, or `[[#Heading]]` opens the linked note (or jumps to the heading) in the current window
 - **Autocompletion** — type `[[` and note titles from your vault appear in the completion menu. Integrates natively with **blink.cmp** (LazyVim default); falls back to `'omnifunc'`
-- **Embed rendering** — every `![[linked note]]` visible in the viewport is rendered inline with a coloured gutter and indented content. Updates on scroll and cursor move
 
 ## Requirements
 
@@ -28,10 +29,6 @@ Navigate `[[wikilinks]]`, autocomplete note titles, and render `![[embeds]]` inl
     require('ft').setup({
       follow = { keymap = 'gf' },
       completion = { enable = true },
-      embeds = {
-        enable = true,
-        max_lines = 20,
-      },
     })
   end,
 }
@@ -61,9 +58,8 @@ require('ft').setup({
   completion = {
     enable = true,           -- autocomplete note titles on [[
   },
-  embeds = {
-    enable = true,           -- render ![[embeds]] inline
-    max_lines = 20,          -- max content lines per embed
+  picker = {
+    backend = 'auto',        -- 'auto' | 'select' | 'telescope' | 'fzf-lua'
   },
 })
 ```
@@ -83,19 +79,33 @@ ft.nvim discovers your Obsidian vault in this order:
 
 ## Architecture
 
+The plugin is **editor glue plus a transport**: every byte of domain logic
+(task lines, queries, dates, synth callouts) lives in the `ft` CLI, which
+is driven through the single `ft.rpc` seam — nothing else spawns the `ft`
+process. Caches are derived and invalidated on vault events; pickers go
+through the `ft.picker` seam. The full model — including the ft CLI
+protocol contract, the freshness model, and the concurrency contract with
+the ft TUI — is documented in
+**[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
 ```
 lua/ft/
-  init.lua      — setup(), FileType autocmd, user commands
-  vault.lua     — vault discovery, ft CLI wrapper
-  wikilink.lua  — [[Target]], [[Target|Alias]], ![[embed]] parser
+  init.lua      — setup(), FileType autocmd, user commands, version check
+  vault.lua     — vault discovery (FT_VAULT → config → walk-up)
+  rpc.lua       — the ONLY module that talks to the ft binary (sync + async)
+  wikilink.lua  — [[Target]], [[Target|Alias]], [[#Heading]] parser
   follow.lua    — follow wikilink under cursor
-  cache.lua     — note list cache from ft graph query
+  cache.lua     — note list cache from ft graph query (async, invalidated)
   complete.lua  — blink.cmp registration or omnifunc fallback
   blink.lua     — blink.cmp source for wikilink completion
-  embed.lua     — inline embed rendering with gutter + indent
+  picker.lua    — picker seam (vim.ui.select default, telescope/fzf-lua opt-in)
 ```
 
-All CLI communication goes through `vault.ft_run()` which shells out to the `ft` binary. The note cache is populated once per session via `ft graph query`. Embed content is cached by file mtime and evicted on buffer write.
+All CLI communication goes through `ft.rpc`: synchronous `call()` for
+quick ops, asynchronous `job()` (single-flight per kind) for slow ones.
+The note cache is rebuilt once per session via `ft graph query` and
+after every vault write event. Embed content rendering was removed in
+the architecture v2 rework.
 
 ## License
 
