@@ -184,7 +184,7 @@ function M.create()
     end
 
     vim.ui.input({
-        prompt = 'ft: new task (inline due:+2d supported)',
+        prompt = 'ft: new task',
         default = prefilled,
     }, function(input)
         if not input then
