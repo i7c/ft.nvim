@@ -3,3 +3,4 @@
 test_*.lua
 node_modules
 package-lock.json
+.ai-jail
