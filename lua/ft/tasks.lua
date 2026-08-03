@@ -6,9 +6,10 @@
 --- buffer) and user input into argv, then reloads the buffer from disk.
 ---
 --- Operations:
----   M.create()  — :FtTaskCreate  — new task at the cursor line
----   M.done()    — :FtTaskDone    — mark the task under the cursor done
----   M.cancel()  — :FtTaskCancel  — cancel the task under the cursor
+---   M.create()        — :FtTaskCreate    — new task at the cursor line
+---   M.create_subtask()— :FtTaskSubtask  — subtask of the task at the cursor line
+---   M.done()          — :FtTaskDone      — mark the task under the cursor done
+---   M.cancel()        — :FtTaskCancel    — cancel the task under the cursor
 ---
 --- Shared mechanics (see ARCHITECTURE.md / the nvim-task-ops change):
 ---   - the buffer is written to disk before any mutating ft command
@@ -163,6 +164,88 @@ local function _preflight()
 end
 
 -- ── Create ──────────────────────────────────────────────────────────────────
+
+--- Create a subtask under the task at the cursor line
+--- (`ft tasks create --parent <rel>:<line>`), nesting one level deeper
+--- than the parent. The parent selector is captured at invocation — a
+--- cursor move while the prompt is open cannot retarget it. The
+--- description is prompted via `vim.ui.input` with an empty default
+--- (the current line is the parent, not a draft). Inline `due:<value>`
+--- tokens behave exactly as in `create`. After success the buffer
+--- reloads and the cursor stays on the parent's line, so repeated
+--- invocations add sibling subtasks.
+function M.create_subtask()
+    local ctx = _preflight()
+    if not ctx then
+        return
+    end
+
+    -- The parent is the line under the cursor at invocation; captured
+    -- once so a cursor move while prompting cannot retarget it.
+    local parent_line = vim.api.nvim_win_get_cursor(0)[1]
+
+    vim.ui.input({
+        prompt = 'ft: new subtask',
+        default = '',
+    }, function(input)
+        if not input then
+            return -- prompt cancelled
+        end
+        if vim.api.nvim_get_current_buf() ~= ctx.buf then
+            vim.notify('ft: aborted — buffer changed while prompting', vim.log.levels.ERROR)
+            return
+        end
+        -- Re-save at confirm time so the disk copy ft scans for the
+        -- parent is exactly what the user sees now.
+        if not _save_buffer(ctx.buf) then
+            vim.notify('ft: could not save the buffer (read-only?)', vim.log.levels.ERROR)
+            return
+        end
+
+        local parsed = M.parse_due(input)
+        if parsed.error then
+            vim.notify('ft: ' .. parsed.error, vim.log.levels.ERROR)
+            return
+        end
+        if #parsed.description == 0 then
+            vim.notify('ft: task description is empty', vim.log.levels.ERROR)
+            return
+        end
+
+        -- `--parent` determines both the target file (the parent's) and
+        -- the position (indented subtask); the placement flags it
+        -- conflicts with (--file/--at-line) are deliberately absent.
+        local args = {
+            'tasks', 'create', parsed.description,
+            '--parent', ctx.rel .. ':' .. parent_line,
+            '--force',
+            '--json-errors',
+        }
+        if parsed.due then
+            args[#args + 1] = '--due'
+            args[#args + 1] = parsed.due
+        end
+
+        local stdout, exit_code = rpc.call(args)
+        if exit_code == 0 then
+            _reload_from_disk(ctx.buf)
+            -- Position::Subtask splices below the parent's block, so
+            -- the parent's line number never shifts; stay on it so
+            -- repeated invocations add sibling subtasks.
+            vim.api.nvim_win_set_cursor(0, { parent_line, 0 })
+        elseif exit_code == -1 then
+            -- rpc.call already notified the missing-binary case.
+            return
+        else
+            local msg = _ft_message(stdout) or 'tasks create failed'
+            if msg:find(NO_MATCH_MARKER, 1, true) then
+                vim.notify('ft: ' .. msg, vim.log.levels.WARN)
+            else
+                vim.notify('ft: ' .. msg, vim.log.levels.ERROR)
+            end
+        end
+    end)
+end
 
 --- Create a task at the cursor line (`ft tasks create --at-line N`),
 --- pushing existing content down. The description is prompted via

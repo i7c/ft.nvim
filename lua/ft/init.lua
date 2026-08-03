@@ -8,8 +8,9 @@
 --- Features:
 --- - `:FtFollow` or `gf` — follow [[Wikilinks]] to the target note or heading
 --- - Wikilink autocompletion — auto-triggers on `[[`, completes note titles
---- - Task operations — `:FtTaskCreate` / `:FtTaskDone` / `:FtTaskCancel` /
----   `:FtTaskDue` (create at cursor with inline `due:+2d` syntax, mark
+--- - Task operations — `:FtTaskCreate` / `:FtTaskSubtask` / `:FtTaskDone` /
+---   `:FtTaskCancel` / `:FtTaskDue` (create at cursor with inline
+---   `due:+2d` syntax, create a subtask under the task at the cursor, mark
 ---   done/cancelled, set/clear the due date)
 ---
 --- Setup:
@@ -28,6 +29,7 @@
 ---     tasks = {
 ---         keymaps = {        -- set any to false to disable
 ---             create = '<leader>tt',
+---             subtask = '<leader>ts',
 ---             done = '<leader>td',
 ---             cancel = '<leader>tc',
 ---             due = '<leader>te',
@@ -50,8 +52,9 @@ local M = {}
 local setup_augroup = vim.api.nvim_create_augroup('ft_setup', { clear = true })
 
 -- Minimum `ft` binary version the plugin's protocol contract assumes.
--- See ARCHITECTURE.md, "Protocol contract".
-local MIN_FT_VERSION = { 0, 1, 0 }
+-- See ARCHITECTURE.md, "Protocol contract". 0.1.4 is the first release
+-- carrying `ft tasks create --parent` (subtask creation).
+local MIN_FT_VERSION = { 0, 1, 4 }
 
 local defaults = {
     vault = nil,
@@ -67,6 +70,7 @@ local defaults = {
     tasks = {
         keymaps = {
             create = '<leader>tt',
+            subtask = '<leader>ts',
             done = '<leader>td',
             cancel = '<leader>tc',
             due = '<leader>te',
@@ -126,6 +130,9 @@ function M.setup(user_opts)
     register_command('FtTaskCreate', function()
         tasks.create()
     end, 'Create a task at the cursor line')
+    register_command('FtTaskSubtask', function()
+        tasks.create_subtask()
+    end, 'Create a subtask under the task at the cursor line')
     register_command('FtTaskDone', function()
         tasks.done()
     end, 'Mark the task under the cursor done')
@@ -176,6 +183,7 @@ function M._setup_buffer(bufnr)
     local task_keymaps = (config.tasks or {}).keymaps or {}
     for action, fn in pairs({
         create = tasks.create,
+        subtask = tasks.create_subtask,
         done = tasks.done,
         cancel = tasks.cancel,
         due = tasks.set_due,

@@ -75,7 +75,7 @@ below are the ones agents must not break.
   the suspend strategy the TUI is blocked and cannot respond — any such
   design deadlocks), and every ft operation spawns a **fresh child
   process**. Consistency is ft's expected-task guard, not locking.
-- **Soft version floor.** `MIN_FT_VERSION` (currently `0.1.0`) is
+- **Soft version floor.** `MIN_FT_VERSION` (currently `0.1.4`) is
   checked at setup: an older binary warns, never fails. Hard version
   enforcement is the integration suite's job, not setup's.
 

@@ -37,14 +37,15 @@ vim.fn.writefile({
     'log="${FT_STUB_LOG:?}"',
     'echo "$@" >> "$log"',
     'for a in "$@"; do',
-    '  if [ "$a" = "--version" ]; then echo "ft 0.1.0"; exit 0; fi',
+    '  if [ "$a" = "--version" ]; then echo "ft 0.1.4"; exit 0; fi',
     'done',
-    'vault=""; subcmd=""; desc=""; file=""; at_line=""; selector=""; due=""',
+    'vault=""; subcmd=""; desc=""; file=""; at_line=""; selector=""; due=""; parent=""',
     'while [ $# -gt 0 ]; do',
     '  case "$1" in',
     '    --vault) vault="$2"; shift 2 ;;',
     '    --file) file="$2"; shift 2 ;;',
     '    --at-line) at_line="$2"; shift 2 ;;',
+    '    --parent) parent="$2"; shift 2 ;;',
     '    --due) due="$2"; shift 2 ;;',
     '    --force|--yes|--json-errors|--edit) shift ;;',
     '    tasks) subcmd="$2"; shift 2 ;;',
@@ -57,6 +58,29 @@ vim.fn.writefile({
     'done',
     'case "$subcmd" in',
     '  create)',
+    '    if [ -n "$parent" ]; then',
+    '      f="${parent%:*}"',
+    '      l="${parent##*:}"',
+    '      abs="$vault/$f"',
+    '      case "${FT_STUB_MODE:-success}" in',
+    '        no_match)',
+    '          echo \'{"chain":["no tasks match selector `\'"$parent"\'`"],"error":"no tasks match selector `\'"$parent"\'`"}\' >&2',
+    '          exit 1',
+    '          ;;',
+    '        hard_error)',
+    '          echo \'{"chain":["line changed on disk"],"error":"line changed on disk — rescan and retry"}\' >&2',
+    '          exit 1',
+    '          ;;',
+    '        *)',
+    '          # Emulate Position::Subtask for a childless parent: insert',
+    '          # a two-space-indented child directly after the parent line.',
+    '          # (The backslash keeps sed from stripping the leading spaces.)',
+    '          sed -i "$((l+1))i\\  - [ ] ${desc}" "$abs"',
+    '          echo "Created task at $f:$((l+1))"',
+    '          exit 0',
+    '          ;;',
+    '      esac',
+    '    fi',
     '    abs="$vault/$file"',
     '    if [ -n "$at_line" ]; then',
     '      sed -i "${at_line}i- [ ] ${desc}" "$abs"',
@@ -129,11 +153,17 @@ local function last_notify()
 end
 
 -- Mock vim.ui.input: `next_input` nil → confirm the prefill (default);
--- `false` → cancel the prompt; a string → answer with it.
+-- `false` → cancel the prompt; a string → answer with it. `move_cursor_to`
+-- (when set) moves the cursor just before answering, emulating a user who
+-- moves the cursor while the prompt is open.
 local next_input = nil
 local last_prompt = nil
+local move_cursor_to = nil
 vim.ui.input = function(opts, cb)
     last_prompt = opts
+    if move_cursor_to then
+        vim.api.nvim_win_set_cursor(0, { move_cursor_to, 0 })
+    end
     if next_input == false then
         cb(nil)
     elseif next_input == nil then
@@ -148,6 +178,7 @@ local function reset_state(content)
     vim.fn.delete(log)
     notified = {}
     next_input = nil
+    move_cursor_to = nil
     vim.fn.setenv('FT_STUB_MODE', 'success')
     -- edit! discards any leftover buffer state between scenarios (a
     -- previous undo may have left the buffer modified).
@@ -253,6 +284,77 @@ before_count = #log_lines()
 tasks.create()
 ok(#log_lines() == before_count, 'cancelled prompt runs no ft command')
 ok(notified[#notified] == nil, 'cancelled prompt is silent')
+
+-- ── Subtask ───────────────────────────────────────────────────────────────
+
+-- Subtask argv: --parent <file>:<line> replaces --file/--at-line; the
+-- parent selector is the invocation-time cursor line.
+reset_state({ '# Inbox', '', '- [ ] Buy milk', '- [ ] Walk dog' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = 'Get eggs'
+tasks.create_subtask()
+local log_sub = table.concat(log_lines(), '\n')
+ok(log_sub:find('tasks create Get eggs --parent inbox.md:3 --force --json-errors', 1, true) ~= nil,
+    'subtask argv: description + --parent <file>:<line> + --force + --json-errors')
+ok(log_sub:find('--file', 1, true) == nil and log_sub:find('--at-line', 1, true) == nil,
+    'subtask argv: no --file/--at-line (clap conflicts with --parent)')
+ok(buf_lines()[4] == '  - [ ] Get eggs', 'subtask inserted after the parent with child indent')
+local cur_sub = vim.api.nvim_win_get_cursor(0)
+ok(cur_sub[1] == 3 and cur_sub[2] == 0, 'cursor stays on the parent line ({3,0})')
+ok(vim.bo[0].modified == false, 'buffer is clean after the subtask reload')
+
+-- Subtask prompt has an empty default (the current line is the parent,
+-- not a draft to convert).
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = nil -- confirm the default (empty) → aborts as empty description
+local before_count_sub = #log_lines()
+tasks.create_subtask()
+ok(last_prompt.default == '', 'subtask prompt has an empty default (no prefill)')
+ok(#log_lines() == before_count_sub, 'empty subtask description aborts without an ft call')
+
+-- Parent is captured at invocation: a cursor move while the prompt is
+-- open must not retarget the subtask.
+reset_state({ '# Inbox', '', '- [ ] Buy milk', '- [ ] Walk dog' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = 'Get eggs'
+move_cursor_to = 4 -- user moves to the other task while typing
+local before_move = #log_lines()
+tasks.create_subtask()
+local log_move = table.concat(log_lines(), '\n')
+ok(log_move:find('--parent inbox.md:3', 1, true) ~= nil
+    and log_move:find('--parent inbox.md:4', 1, true) == nil,
+    'parent selector uses the invocation-time line, not the confirm-time line')
+
+-- Inline due: token extracted, raw value passed to --due on the subtask.
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+next_input = 'Write report due:+2d'
+tasks.create_subtask()
+local log_sub_due = table.concat(log_lines(), '\n')
+ok(log_sub_due:find('tasks create Write report --parent inbox.md:3 --force --json-errors --due +2d', 1, true) ~= nil,
+    'subtask due: token stripped and passed as --due +2d')
+
+-- Non-task line: ft\'s "no tasks match selector" is a warning.
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.fn.setenv('FT_STUB_MODE', 'no_match')
+next_input = 'Get eggs'
+tasks.create_subtask()
+ok(last_notify().level == vim.log.levels.WARN
+    and last_notify().msg:find('no tasks match selector', 1, true) ~= nil,
+    'subtask on a non-task line surfaces a warning')
+ok(buf_lines()[3] == '- [ ] Buy milk', 'non-task subtask leaves the buffer untouched')
+
+-- Other ft failures are errors.
+reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+vim.api.nvim_win_set_cursor(0, { 3, 0 })
+vim.fn.setenv('FT_STUB_MODE', 'hard_error')
+next_input = 'Get eggs'
+tasks.create_subtask()
+ok(last_notify().level == vim.log.levels.ERROR
+    and last_notify().msg:find('changed on disk', 1, true) ~= nil,
+    'hard ft failure surfaces as an error')
 
 -- ── Done ───────────────────────────────────────────────────────────────────
 
@@ -391,6 +493,7 @@ local function mapped(key)
 end
 
 ok(mapped('<leader>tt'), 'default create keymap <leader>tt is set')
+ok(mapped('<leader>ts'), 'default subtask keymap <leader>ts is set')
 ok(mapped('<leader>td'), 'default done keymap <leader>td is set')
 ok(mapped('<leader>tc'), 'default cancel keymap <leader>tc is set')
 ok(mapped('<leader>te'), 'default due keymap <leader>te is set')
@@ -402,7 +505,8 @@ vim.fn.writefile({ '# Other' }, other)
 vim.cmd('edit ' .. vim.fn.fnameescape(other))
 vim.cmd('setfiletype markdown')
 ok(not mapped('<leader>tc'), 'disabled cancel keymap is unset after re-setup')
-ok(mapped('<leader>tt') and mapped('<leader>td') and mapped('<leader>te'),
+ok(mapped('<leader>tt') and mapped('<leader>td') and mapped('<leader>te')
+    and mapped('<leader>ts'),
     'remaining keymaps survive re-setup')
 
 require('ft').setup({ tasks = { keymaps = { due = false } } })
@@ -413,6 +517,17 @@ vim.cmd('setfiletype markdown')
 ok(not mapped('<leader>te'), 'disabled due keymap is unset after re-setup')
 ok(mapped('<leader>tt') and mapped('<leader>tc'),
     'other task keymaps survive the due disable')
+
+-- Subtask keymap can be disabled independently.
+require('ft').setup({ tasks = { keymaps = { subtask = false } } })
+local subbuf = base .. '/sub.md'
+vim.fn.writefile({ '# Sub' }, subbuf)
+vim.cmd('edit ' .. vim.fn.fnameescape(subbuf))
+vim.cmd('setfiletype markdown')
+ok(not mapped('<leader>ts'), 'disabled subtask keymap is unset after re-setup')
+ok(mapped('<leader>tt') and mapped('<leader>td') and mapped('<leader>tc')
+    and mapped('<leader>te'),
+    'other task keymaps survive the subtask disable')
 
 -- ── Outside the vault / missing binary ─────────────────────────────────────
 
@@ -429,6 +544,15 @@ ok(last_notify().level == vim.log.levels.ERROR
     and last_notify().msg:find('no Obsidian vault', 1, true) ~= nil,
     'create outside a vault notifies an error')
 
+before_count = #log_lines()
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+next_input = 'x'
+tasks.create_subtask()
+ok(#log_lines() == before_count, 'subtask outside a vault runs no ft command')
+ok(last_notify().level == vim.log.levels.ERROR
+    and last_notify().msg:find('no Obsidian vault', 1, true) ~= nil,
+    'subtask outside a vault notifies an error')
+
 vim.fn.setenv('FT_VAULT', base)
 vault_mod.reset()
 vault_mod.discover(nil)
@@ -444,6 +568,12 @@ else
     tasks.create()
     ok(#notified > 0 and last_notify().level == vim.log.levels.ERROR,
         'missing binary notifies without crashing')
+    reset_state({ '# Inbox', '', '- [ ] Buy milk' })
+    vim.api.nvim_win_set_cursor(0, { 3, 0 })
+    next_input = 'x'
+    tasks.create_subtask()
+    ok(#notified > 0 and last_notify().level == vim.log.levels.ERROR,
+        'missing binary notifies for subtask without crashing')
 end
 vim.fn.setenv('FT_BIN', stub)
 

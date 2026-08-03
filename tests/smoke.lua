@@ -10,8 +10,9 @@
 ---   4. a legacy `embeds` config key loads without error and embed.lua
 ---      no longer exists (embeds removal)
 ---   5. task operations: create at cursor (inline due:+2d → ISO date,
----      duplicate allowed), done, cancel, idempotent already-done, and
----      non-task warning
+---      duplicate allowed), subtask under the cursor (indent, nesting,
+---      duplicate allowed, cursor stays on the parent), done, cancel,
+---      idempotent already-done, and non-task warning
 
 local failures = 0
 
@@ -69,7 +70,7 @@ ok(setup_ok, 'setup with legacy embeds config key loads without error')
 
 local warned = false
 for _, m in ipairs(notified) do
-    if m:find('older than the required 0.1.0', 1, true) then
+    if m:find('older than the required 0.1.4', 1, true) then
         warned = true
     end
 end
@@ -213,6 +214,67 @@ tasks.set_due()
 ok(#notified == notified_before + 1
     and notified[#notified]:find('could not parse', 1, true) ~= nil,
     'invalid due input surfaces ft\'s parse error')
+
+-- ── Subtask with the real binary ───────────────────────────────────────────
+
+-- Childless parent: the new child is indented two spaces past the parent
+-- and the cursor stays on the parent line.
+local sub_note = base .. '/Notes/Subtasks.md'
+vim.fn.writefile({ '# Subtasks', '', '- [ ] Root task' }, sub_note)
+vim.cmd('edit ' .. vim.fn.fnameescape(sub_note))
+local root_line = find_line('Root task')
+vim.api.nvim_win_set_cursor(0, { root_line, 0 })
+ui_answer = 'Child one'
+tasks.create_subtask()
+ok(buf_line(root_line + 1):match('^  %- %[ %] Child one') ~= nil,
+    'subtask of a childless parent is indented two spaces')
+ok(vim.api.nvim_win_get_cursor(0)[1] == root_line, 'cursor stays on the parent line')
+ok(vim.bo[0].modified == false, 'buffer is clean after the subtask reload')
+
+-- Duplicate subtask is allowed (--force): a second identical child appears.
+vim.api.nvim_win_set_cursor(0, { root_line, 0 })
+ui_answer = 'Child one'
+tasks.create_subtask()
+local child_count = 0
+for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    if l:match('^  %- %[ %] Child one') then
+        child_count = child_count + 1
+    end
+end
+ok(child_count == 2, 'duplicate subtask allowed (' .. child_count .. ' identical child lines)')
+
+-- Parent with children: the new child matches the first child's indent
+-- verbatim and lands after the parent's whole block (children included).
+local sub2_note = base .. '/Notes/Subtasks2.md'
+vim.fn.writefile({ '# Subtasks 2', '', '- [ ] Parent task', '    - [ ] Existing child', '', 'Plain line' }, sub2_note)
+vim.cmd('edit ' .. vim.fn.fnameescape(sub2_note))
+local parent2_line = find_line('Parent task')
+vim.api.nvim_win_set_cursor(0, { parent2_line, 0 })
+ui_answer = 'New child'
+tasks.create_subtask()
+ok(buf_line(parent2_line + 2):match('^    %- %[ %] New child') ~= nil,
+    'subtask matches the existing child\'s verbatim indent, appended after the block')
+ok(vim.api.nvim_win_get_cursor(0)[1] == parent2_line, 'cursor stays on the parent (with children)')
+
+-- Nested: creating a subtask of a subtask goes one level deeper.
+local sub3_note = base .. '/Notes/Subtasks3.md'
+vim.fn.writefile({ '# Subtasks 3', '', '- [ ] Grandparent', '  - [ ] Parent sub' }, sub3_note)
+vim.cmd('edit ' .. vim.fn.fnameescape(sub3_note))
+local parent_sub_line = find_line('Parent sub')
+vim.api.nvim_win_set_cursor(0, { parent_sub_line, 0 })
+ui_answer = 'Deep child'
+tasks.create_subtask()
+ok(buf_line(parent_sub_line + 1):match('^    %- %[ %] Deep child') ~= nil,
+    'nested subtask of a subtask goes one level deeper (four spaces)')
+
+-- Non-task line: ft\'s "no tasks match selector" warning.
+notified_before = #notified
+vim.api.nvim_win_set_cursor(0, { 1, 0 }) -- '# Subtasks 3' heading
+ui_answer = 'Orphan'
+tasks.create_subtask()
+ok(#notified == notified_before + 1
+    and notified[#notified]:find('no tasks match selector', 1, true) ~= nil,
+    'subtask on a non-task line surfaces a warning')
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 

@@ -10,7 +10,7 @@ Navigate `[[wikilinks]]` and autocomplete note titles — all inside Neovim, bac
 
 - **Follow wikilinks** — `gf` on `[[Target]]`, `[[Target|Alias]]`, `[[Target#Heading]]`, or `[[#Heading]]` opens the linked note (or jumps to the heading) in the current window
 - **Autocompletion** — type `[[` and note titles from your vault appear in the completion menu. Integrates natively with **blink.cmp** (LazyVim default); falls back to `'omnifunc'`
-- **Task operations** — create, mark done, cancel, and edit the due date of tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskDone`, `:FtTaskCancel`, `:FtTaskDue`). The create prompt accepts inline due dates (`Buy milk due:+2d`); the due command prompts for a date (`+7d`, `next monday`, or `none` to clear). The buffer is saved before each mutation and reloaded after, undo history intact
+- **Task operations** — create, create subtasks, mark done, cancel, and edit the due date of tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskSubtask`, `:FtTaskDone`, `:FtTaskCancel`, `:FtTaskDue`). The create prompt accepts inline due dates (`Buy milk due:+2d`); the due command prompts for a date (`+7d`, `next monday`, or `none` to clear). The buffer is saved before each mutation and reloaded after, undo history intact
 
 ## Requirements
 
@@ -62,6 +62,7 @@ require('ft').setup({
   tasks = {
     keymaps = {
       create = '<leader>tt', -- create a task at the cursor line
+      subtask = '<leader>ts',-- create a subtask under the cursor task
       done = '<leader>td',   -- mark the task under the cursor done
       cancel = '<leader>tc', -- cancel the task under the cursor
       due = '<leader>te',    -- set/clear the due date under the cursor
@@ -87,6 +88,7 @@ ft.nvim discovers your Obsidian vault in this order:
 
 - `:FtFollow` — follow the `[[wikilink]]` under the cursor (same as `gf`)
 - `:FtTaskCreate` — create a task at the cursor line (prompt supports `due:+2d` inline dates)
+- `:FtTaskSubtask` — create a subtask under the task at the cursor line (repeat to add siblings; the cursor stays put)
 - `:FtTaskDone` — mark the task under the cursor done (`<leader>td`)
 - `:FtTaskCancel` — cancel the task under the cursor (`<leader>tc`)
 - `:FtTaskDue` — set/clear the due date of the task under the cursor (`<leader>te`; enter `none` to clear)
@@ -113,7 +115,7 @@ lua/ft/
   rpc.lua       — the ONLY module that talks to the ft binary (sync + async)
   wikilink.lua  — [[Target]], [[Target|Alias]], [[#Heading]] parser
   follow.lua    — follow wikilink under cursor
-  tasks.lua     — task create/done/cancel (save, mutate, reload)
+  tasks.lua     — task create/subtask/done/cancel/due (save, mutate, reload)
   cache.lua     — note list cache from ft graph query (async, invalidated)
   complete.lua  — blink.cmp registration or omnifunc fallback
   blink.lua     — blink.cmp source for wikilink completion
