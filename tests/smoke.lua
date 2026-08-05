@@ -13,6 +13,9 @@
 ---      duplicate allowed), subtask under the cursor (indent, nesting,
 ---      duplicate allowed, cursor stays on the parent), done, cancel,
 ---      idempotent already-done, and non-task warning
+---   6. quote: git fixture vault; quote a committed range → the
+---      registers hold the canonical callout; dirty source warns; hard
+---      version-floor assert (>= MIN_FT_VERSION)
 
 local failures = 0
 
@@ -70,7 +73,7 @@ ok(setup_ok, 'setup with legacy embeds config key loads without error')
 
 local warned = false
 for _, m in ipairs(notified) do
-    if m:find('older than the required 0.1.4', 1, true) then
+    if m:find('older than the required 0.1.5', 1, true) then
         warned = true
     end
 end
@@ -275,6 +278,54 @@ tasks.create_subtask()
 ok(#notified == notified_before + 1
     and notified[#notified]:find('no tasks match selector', 1, true) ~= nil,
     'subtask on a non-task line surfaces a warning')
+
+-- ── 6. Quote with the real binary ──────────────────────────────────────────
+
+local rpc = require('ft.rpc')
+local quote = require('ft.quote')
+
+-- Make the vault a git repository and commit the fixture notes, so the
+-- pin-to-HEAD check passes (quote requires committed, unmodified files).
+vim.fn.system({ 'git', 'init', '-q', base })
+vim.fn.system({ 'git', '-C', base, 'config', 'user.email', 'smoke@ft.nvim' })
+vim.fn.system({ 'git', '-C', base, 'config', 'user.name', 'smoke' })
+vim.fn.system({ 'git', '-C', base, 'add', '-A' })
+vim.fn.system({ 'git', '-C', base, 'commit', '-q', '-m', 'fixture' })
+
+-- Quote lines 1-2 of the committed Apple.md: the registers hold the
+-- exact canonical callout (header + quoted body lines).
+vim.cmd('edit ' .. vim.fn.fnameescape(apple))
+quote.quote_range(1, 2)
+local q_lines = vim.split(vim.fn.getreg('"'):gsub('\n$', ''), '\n')
+ok(#q_lines == 3, 'quote emitted a 3-line callout (header + 2 body lines)')
+ok(q_lines[1]:match('^> %[!ft%-source%] "Notes/Apple%.md" L1%-2 @%x+ #%x+$') ~= nil,
+    'callout header: vault-relative path, range, HEAD sha, content hash')
+ok(q_lines[2] == '> # Apple' and q_lines[3] == '>',
+    'callout body quotes the committed lines verbatim')
+ok(vim.fn.getreg('f') == vim.fn.getreg('"'), 'named register f holds the same callout')
+
+-- Dirty source: modifying Apple.md without committing makes the quote
+-- fail with ft's uncommitted-changes warning; registers are untouched.
+local q_prev = vim.fn.getreg('"')
+local apple_buf = vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(apple_buf, 1, 2, false, { 'dirty edit' }) -- no write yet
+local q_before = #notified
+quote.quote_range(1, 2)
+ok(#notified == q_before + 1
+    and notified[#notified]:find('uncommitted changes', 1, true) ~= nil,
+    'dirty source surfaces ft\'s uncommitted-changes warning')
+ok(vim.fn.getreg('"') == q_prev, 'failed quote leaves the register untouched')
+-- Restore the fixture (smoke may be re-run against the same temp dir).
+vim.fn.writefile({ '# Apple', '', 'See [[Banana]] for details.' }, apple)
+vim.cmd('edit! ' .. vim.fn.fnameescape(apple))
+
+-- Hard floor assert: the suite requires the available binary to be at
+-- least MIN_FT_VERSION (the setup check only soft-warns).
+local ver_out, ver_code = rpc.call({ '--version' })
+local version = rpc.parse_version(ver_out)
+ok(ver_code == 0 and version ~= nil, 'real binary reports a parseable version')
+ok(version ~= nil and not rpc.version_lt(version, { 0, 1, 5 }),
+    'real binary version >= 0.1.5 (MIN_FT_VERSION floor)')
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 

@@ -153,6 +153,31 @@ vim.fn.setenv('FT_VAULT', '')
 ok(vault.relativize('/tmp/fake-vault/Apple.md') == nil,
     'relativize: nil without a discovered vault')
 
+-- ── 5. quote pure helpers ────────────────────────────────────────────────────
+
+local quote = require('ft.quote')
+
+-- range_spec: the `A-B` token `ft notes quote -l` expects.
+ok(quote.range_spec(1, 1) == '1-1', 'range_spec: single line')
+ok(quote.range_spec(2, 5) == '2-5', 'range_spec: multi-line')
+ok(quote.range_spec(0, 3) == nil, 'range_spec rejects A < 1')
+ok(quote.range_spec(5, 2) == nil, 'range_spec rejects A > B')
+ok(quote.range_spec(nil, 2) == nil and quote.range_spec(2, 'x') == nil,
+    'range_spec rejects non-numbers')
+
+-- register_targets: config trim + clipboard availability gate.
+local reg_all = quote.register_targets({ unnamed = true, named = true, clipboard = true }, true)
+ok(#reg_all == 3 and reg_all[1].reg == '"' and reg_all[2].reg == 'f' and reg_all[3].reg == '+',
+    'register_targets: default set, ordered " f +')
+local reg_noclip = quote.register_targets({ unnamed = true, named = true, clipboard = true }, false)
+ok(#reg_noclip == 2 and reg_noclip[1].reg == '"' and reg_noclip[2].reg == 'f',
+    'register_targets: clipboard dropped when unavailable')
+local reg_trim = quote.register_targets({ unnamed = true, named = false, clipboard = true }, true)
+ok(#reg_trim == 2 and reg_trim[1].reg == '"' and reg_trim[2].reg == '+',
+    'register_targets: disabled entries are honored')
+local reg_none = quote.register_targets({ unnamed = false, named = false, clipboard = false }, true)
+ok(#reg_none == 0, 'register_targets: all disabled is empty')
+
 -- ── summary ─────────────────────────────────────────────────────────────────
 
 if failures > 0 then

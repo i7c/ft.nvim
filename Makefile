@@ -5,6 +5,7 @@
 test:
 	nvim --headless -l tests/run.lua
 	nvim --headless -l tests/tasks_stub.lua
+	nvim --headless -l tests/quote_stub.lua
 
 # Integration smoke test — requires a real ft binary:
 #   make smoke FT_BIN=/path/to/ft/target/release/ft

@@ -11,6 +11,7 @@ Navigate `[[wikilinks]]` and autocomplete note titles — all inside Neovim, bac
 - **Follow wikilinks** — `gf` on `[[Target]]`, `[[Target|Alias]]`, `[[Target#Heading]]`, or `[[#Heading]]` opens the linked note (or jumps to the heading) in the current window
 - **Autocompletion** — type `[[` and note titles from your vault appear in the completion menu. Integrates natively with **blink.cmp** (LazyVim default); falls back to `'omnifunc'`
 - **Task operations** — create, create subtasks, mark done, cancel, and edit the due date of tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskSubtask`, `:FtTaskDone`, `:FtTaskCancel`, `:FtTaskDue`). The create prompt accepts inline due dates (`Buy milk due:+2d`); the due command prompts for a date (`+7d`, `next monday`, or `none` to clear). The buffer is saved before each mutation and reloaded after, undo history intact
+- **Quote protected sections** — quote any line range of the current note as a pinned `[!ft-source]` callout (the `ft notes quote` plumbing) via the `gz` operator (`gzap` a paragraph, `gz3j` three lines, or `gz` on a visual selection; `:FtQuote` quotes the current line). The callout lands linewise in the unnamed register (plain `p` pastes), register `f`, and the system clipboard, so you can paste it into any other note — even in a fresh nvim session
 
 ## Requirements
 
@@ -69,6 +70,16 @@ require('ft').setup({
       -- set any to false to disable the keymap (command still works)
     },
   },
+  quote = {
+    keymaps = {
+      operator = 'gz',       -- operator (gz + motion) and visual key; false disables
+    },
+    registers = {
+      unnamed = true,        -- plain `p` pastes the section
+      named = true,          -- register `f`: stable home for repeated paste
+      clipboard = true,      -- `"+`: survives closing nvim and reopening
+    },
+  },
   picker = {
     backend = 'auto',        -- 'auto' | 'select' | 'telescope' | 'fzf-lua'
   },
@@ -92,6 +103,7 @@ ft.nvim discovers your Obsidian vault in this order:
 - `:FtTaskDone` — mark the task under the cursor done (`<leader>td`)
 - `:FtTaskCancel` — cancel the task under the cursor (`<leader>tc`)
 - `:FtTaskDue` — set/clear the due date of the task under the cursor (`<leader>te`; enter `none` to clear)
+- `:FtQuote` — quote the current line (normal mode) or the selection (visual mode) as a protected section (`gz` + a motion does the same as an operator)
 
 Task operations save the buffer before running `ft` and reload it after
 (undo preserved). Marking an already-done/cancelled task is a no-op.
@@ -116,6 +128,7 @@ lua/ft/
   wikilink.lua  — [[Target]], [[Target|Alias]], [[#Heading]] parser
   follow.lua    — follow wikilink under cursor
   tasks.lua     — task create/subtask/done/cancel/due (save, mutate, reload)
+  quote.lua     — quote a range as a protected section via `ft notes quote`
   cache.lua     — note list cache from ft graph query (async, invalidated)
   complete.lua  — blink.cmp registration or omnifunc fallback
   blink.lua     — blink.cmp source for wikilink completion

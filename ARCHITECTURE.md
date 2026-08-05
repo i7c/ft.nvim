@@ -103,12 +103,15 @@ this file and the plugin's `min_ft_version` check change with it.
 | `ft tasks complete` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (done) | Exact selector for the task under the cursor; already-done exits 1 with `is already done` (classified as info, not error); recurring tasks write their next instance |
 | `ft tasks cancel` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (cancel) | Already-cancelled already exits 0 (idempotent at the CLI) |
 | `ft tasks edit` | `<file>:<line>` `--due <DATE\|none> --json-errors` | `tasks.lua` (set_due) | Single-task; `none` clears the due date; invalid dates error cleanly |
+| `ft notes quote` | `<FILE>` `-l A-B` (short for `--lines`) `--json-errors` | `quote.lua` | Read-only plumbing: emits the canonical `[!ft-source]` callout for a 1-indexed inclusive line range, pinned to HEAD (short SHA + blake3 content hash). Fails on a source with uncommitted changes, a missing file, an out-of-bounds range, or a vault outside git — the plugin surfaces the message, never git |
 
 Error classification for the update ops matches ft's stable error
 strings (`is already done`, `no tasks match selector`), pinned by the
-Tier 2 stub tests.
+Tier 2 stub tests. Quote's failures are classified on the message text
+(`has uncommitted changes` / `outside file` → warn, everything else →
+error), pinned by the quote stub tests.
 
-The plugin's `MIN_FT_VERSION` floor (currently `0.1.4`) is checked at
+The plugin's `MIN_FT_VERSION` floor (currently `0.1.5`) is checked at
 setup: an older binary produces a warning, never a failure.
 
 ### Roadmap surface (not yet consumed)
@@ -120,7 +123,7 @@ needed for them are deferred to the changes that build the features:
 |---|---|---|
 | Gather flow | `ft notes gather --link [[X]] --json` | `--json` exists; async tier required (git-blame scale) |
 | Pulse | `ft notes pulse --json` | Exists today |
-| Synth notes | `ft notes synth scaffold … --no-edit` (+ a future render-only `--print` mode) | `--print` would emit the note body to stdout for in-buffer splicing |
+| Synth notes | `ft notes synth scaffold … --no-edit` | The pinning plumbing scaffold shares is already consumed via `ft notes quote` (see above); scaffold-from-editor itself remains future |
 
 ---
 

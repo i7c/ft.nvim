@@ -12,6 +12,8 @@
 ---   `:FtTaskCancel` / `:FtTaskDue` (create at cursor with inline
 ---   `due:+2d` syntax, create a subtask under the task at the cursor, mark
 ---   done/cancelled, set/clear the due date)
+--- - Quote — `gz` operator / `:FtQuote`: quote a line range of the current
+---   note as a protected section (`ft notes quote`) into the registers
 ---
 --- Setup:
 --- ```lua
@@ -42,6 +44,7 @@
 
 local follow = require('ft.follow')
 local picker = require('ft.picker')
+local quote = require('ft.quote')
 local rpc = require('ft.rpc')
 local tasks = require('ft.tasks')
 local vault = require('ft.vault')
@@ -52,9 +55,9 @@ local M = {}
 local setup_augroup = vim.api.nvim_create_augroup('ft_setup', { clear = true })
 
 -- Minimum `ft` binary version the plugin's protocol contract assumes.
--- See ARCHITECTURE.md, "Protocol contract". 0.1.4 is the first release
--- carrying `ft tasks create --parent` (subtask creation).
-local MIN_FT_VERSION = { 0, 1, 4 }
+-- See ARCHITECTURE.md, "Protocol contract". 0.1.5 is the first release
+-- carrying `ft notes quote` (protected-section quoting).
+local MIN_FT_VERSION = { 0, 1, 5 }
 
 local defaults = {
     vault = nil,
@@ -74,6 +77,16 @@ local defaults = {
             done = '<leader>td',
             cancel = '<leader>tc',
             due = '<leader>te',
+        },
+    },
+    quote = {
+        keymaps = {
+            operator = 'gz', -- operator + visual key; false disables
+        },
+        registers = {
+            unnamed = true, -- plain `p` pastes the section
+            named = true, -- register `f`: stable home for repeated paste
+            clipboard = true, -- `"+`: survives closing nvim and reopening
         },
     },
 }
@@ -96,6 +109,9 @@ function M.setup(user_opts)
     -- Configure the picker seam.
     picker.setup(config.picker)
 
+    -- Apply the quote config (register targets).
+    quote.setup(config.quote)
+
     -- Soft-check the ft binary version: warn, never fail.
     M._check_ft_version()
 
@@ -117,15 +133,25 @@ function M.setup(user_opts)
     -- Register user commands (available globally even outside markdown
     -- files, will show an appropriate error). Guarded so setup() can be
     -- re-called (lazy reload, config changes) without duplicate commands.
-    local function register_command(name, fn, desc)
+    local function register_command(name, fn, desc, opts)
         if vim.fn.exists(':' .. name) == 0 then
-            vim.api.nvim_create_user_command(name, fn, { desc = desc })
+            vim.api.nvim_create_user_command(
+                name,
+                fn,
+                vim.tbl_extend('force', { desc = desc }, opts or {})
+            )
         end
     end
 
     register_command('FtFollow', function()
         follow.follow_wikilink()
     end, 'Follow [[wikilink]] under cursor')
+
+    -- Range command: normal mode defaults to the current line; invoked
+    -- from visual mode nvim supplies the selection as the range.
+    register_command('FtQuote', function(args)
+        quote.quote_range(args.line1, args.line2)
+    end, 'Quote the line range as a protected section', { range = true })
 
     register_command('FtTaskCreate', function()
         tasks.create()
@@ -195,6 +221,23 @@ function M._setup_buffer(bufnr)
                 buffer = bufnr,
             })
         end
+    end
+
+    -- ── Quote (protected section) ───────────────────────────────────
+    local quote_cfg = config.quote or {}
+    local quote_key = (quote_cfg.keymaps or {}).operator
+    if quote_key then
+        vim.keymap.set('n', quote_key, quote.operator_rhs(), {
+            expr = true, -- the callback returns `g@` to take the motion
+            desc = 'ft: quote motion range as protected section',
+            buffer = bufnr,
+        })
+        vim.keymap.set('v', quote_key, function()
+            quote.quote_selection()
+        end, {
+            desc = 'ft: quote selection as protected section',
+            buffer = bufnr,
+        })
     end
 
     -- ── Autocompletion ───────────────────────────────────────────────

@@ -13,6 +13,9 @@ Features:
   - Autocompletion: note titles auto-complete when typing `[[`
   - Task operations: create, create subtasks, mark done, cancel, and
     edit due dates from inside nvim
+  - Quote protected sections: `gz` / `:FtQuote` — quote a line range as
+    a pinned `[!ft-source]` callout and paste it into any other note
+    (requires ft >= 0.1.5)
 
 Note: `![[embeds]]` inline rendering is no longer supported — it was
 removed in the architecture v2 rework; the plugin is not a Markdown
@@ -170,6 +173,78 @@ Keymaps:                                        *ft-tasks-keymaps*
 <
 
 ==============================================================================
+QUOTE (PROTECTED SECTIONS)                          *ft-quote*
+
+  Quote a line range of the current note as a protected section — the
+  canonical `[!ft-source]` callout `ft notes quote` emits, pinned to
+  HEAD (requires ft >= 0.1.5). The callout lands in your registers;
+  paste it into any other note.
+
+Usage:                                            *ft-quote-usage*
+
+  `gz` is a true operator: press it, then a motion or text object.
+
+    gzap     quote the paragraph under the cursor
+    gz3j     quote the cursor line plus three lines down
+    gzgG     quote from the cursor to the end of the note
+    gz       (visual mode) quote the selection
+
+  `:FtQuote` quotes the current line in normal mode and the selection
+  in visual mode (it also accepts an explicit range, e.g.
+  `:3,6FtQuote`). After the operator the cursor returns to the start of
+  the range, so repeating `gz` plus a motion grows the quote.
+
+Registers:                                        *ft-quote-registers*
+
+  On success the callout is placed linewise into:
+
+    "   unnamed register — plain `p` pastes the section
+    f   named register — a stable home, only ever written by ft.nvim
+    +   system clipboard — survives closing nvim and reopening
+
+  With `clipboard=unnamedplus` the unnamed register and the clipboard
+  are the same register, so `p` in a fresh session pastes the section.
+  A clipboard that cannot be written is skipped silently; the success
+  notification lists the registers that were actually set. Any of the
+  three can be disabled under `quote.registers`.
+
+  A failed quote (e.g. an uncommitted source) writes nothing — your
+  previous quote stays in the registers.
+
+Save-before-quote:                                *ft-quote-save*
+
+  The buffer is saved to disk before quoting, so the pinned lines match
+  what you see (same pattern as the task operations).
+
+Prerequisites:                                    *ft-quote-prereqs*
+
+  `ft notes quote` pins to HEAD: the source note must be committed and
+  unmodified. A note with uncommitted changes — anywhere in the file;
+  the clean check is whole-file, not per-range — shows a warning with
+  ft's commit-or-stash hint; the plugin never touches git. The vault
+  must be a git repository.
+
+Pasting into a synth note:                        *ft-quote-synth*
+
+  A pasted section is plain markdown and renders in any note. To have
+  it checked by `ft notes synth verify`, the destination note needs
+  `ft.synth.enabled: true` in its frontmatter — synth notes created via
+  `ft notes synth scaffold` carry it automatically.
+
+Keymaps:                                          *ft-quote-keymaps*
+
+  Default: `gz` (normal-mode operator + visual-mode key) in every
+  markdown buffer inside a vault. To change or disable:
+
+>lua
+  require('ft').setup({
+    quote = {
+      keymaps = { operator = '<leader>fq' }, -- or false to disable
+      registers = { named = false },         -- drop the `f` register
+    },
+  })
+<
+==============================================================================
 AUTOCOMPLETION                                  *ft-completion*
 
   When typing `[[`, note titles from your vault appear in the
@@ -219,6 +294,7 @@ REQUIREMENTS                                    *ft-requirements*
 - The `ft` CLI tool (build from `ft` repo):
   Install with `cargo install --path ft` from the `ft` repository.
   Must be on `$PATH`.
+  Quoting protected sections requires ft >= 0.1.5.
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:
