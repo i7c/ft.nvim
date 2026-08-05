@@ -192,13 +192,26 @@ vim.api.nvim_win_set_cursor(0, { 2, 0 })
 vim.cmd('normal gz3j')
 ok(log_lines()[1]:find('-l 2-5', 1, true) ~= nil, 'gz operator + count motion quotes N lines')
 
--- Visual entry: the selection span ('< .. '>).
+-- Visual entry: the keymap is the same operator as normal mode (`g@`
+-- applies the operatorfunc to the selection). A visual callback cannot
+-- read `'<`/`'>` directly — nvim commits those marks only when visual
+-- mode exits — so the visual path shares the tested operatorfunc; assert
+-- the keymap itself is the expr mapping that arms it.
+reset_state({ 'aaa', 'bbb', 'ccc', 'ddd', 'eee' })
+local vmap = vim.fn.maparg('gz', 'v', false, true)
+ok(type(vmap) == 'table' and vmap.expr == 1, 'visual gz keymap is an expr mapping')
+ok(type(vmap.callback) == 'function' and vmap.callback() == 'g@'
+    and vim.o.operatorfunc == 'v:lua.ft_quote_operator',
+    'visual gz callback arms operatorfunc and returns g@ (selection via operator)')
+
+-- Scripted path (marks already committed): quote_selection reads '< '>'.
 reset_state({ 'aaa', 'bbb', 'ccc', 'ddd', 'eee' })
 vim.fn.delete(log)
 vim.fn.setpos("'<", { 0, 2, 0, 0 })
 vim.fn.setpos("'>", { 0, 3, 0, 0 })
 quote.quote_selection()
-ok(log_lines()[1]:find('-l 2-3', 1, true) ~= nil, 'quote_selection quotes the visual span (2-3)')
+ok(log_lines()[1]:find('-l 2-3', 1, true) ~= nil,
+    'quote_selection quotes the committed visual span (2-3)')
 
 -- :FtQuote — current line in normal mode, explicit ranges work.
 reset_state({ 'aaa', 'bbb', 'ccc' })

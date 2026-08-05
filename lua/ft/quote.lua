@@ -4,11 +4,15 @@
 --- Thin editor glue (pillar 1.1): the callout text from ft passes
 --- through unparsed — Lua never touches the `[!ft-source]` grammar.
 --- Entry points, all funneling into `quote_range(a, b)`:
----   M.quote_range(a, b)     — the one core path (runs ft, sets registers)
----   M.operatorfunc()        — `g@` callback: quotes the motion's `'[`..`']`
----   M.quote_selection()     — visual entry: quotes `'<`..`'>`
+---   M.quote_range(a, b)  — the one core path (runs ft, sets registers)
+---   M.operatorfunc()     — `g@` callback: quotes the motion's `'[`..`']`
+---                         (normal-mode motions AND visual selections —
+---                         in visual mode `g@` applies the operator to the
+---                         selection, because `'<`/`'>` marks are not yet
+---                         committed when a visual keymap callback runs)
 ---   :FtQuote (range command) — current line in normal mode, selection
----                             in visual mode
+---                             in visual mode (`'<,'>` is committed by nvim
+---                             for commands, unlike marks in a callback)
 ---
 --- Registers: the callout lands linewise in the unnamed register `"`
 --- (plain `p` pastes), a named register `f` (stable home, only ever
@@ -262,7 +266,10 @@ function M.operator_rhs()
 end
 
 --- Quote the visual selection's line span (`'<` .. `'>`).
---- Used by the visual-mode keymap.
+--- Only correct when the visual marks are committed (i.e. NOT from a
+--- visual-mode keymap callback — nvim commits `'<`/`'>` only when visual
+--- mode exits, so the visual `gz` keymap uses the operator path instead,
+--- see `operatorfunc`). Kept for scripted use after a selection ends.
 function M.quote_selection()
     M.quote_range(vim.fn.line("'<"), vim.fn.line("'>"))
 end

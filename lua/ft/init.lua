@@ -227,14 +227,18 @@ function M._setup_buffer(bufnr)
     local quote_cfg = config.quote or {}
     local quote_key = (quote_cfg.keymaps or {}).operator
     if quote_key then
+        -- Both modes use the same operator: `gz` arms operatorfunc and
+        -- returns `g@`. In normal mode `g@` takes the following motion;
+        -- in visual mode `g@` applies the operator to the selection.
+        -- (A direct visual callback cannot read `'<`/`'>` — nvim commits
+        -- those marks only when visual mode exits, after the callback.)
         vim.keymap.set('n', quote_key, quote.operator_rhs(), {
             expr = true, -- the callback returns `g@` to take the motion
             desc = 'ft: quote motion range as protected section',
             buffer = bufnr,
         })
-        vim.keymap.set('v', quote_key, function()
-            quote.quote_selection()
-        end, {
+        vim.keymap.set('v', quote_key, quote.operator_rhs(), {
+            expr = true, -- `g@` applies the operator to the selection
             desc = 'ft: quote selection as protected section',
             buffer = bufnr,
         })
