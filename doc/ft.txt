@@ -16,6 +16,9 @@ Features:
   - Quote protected sections: `gz` / `:FtQuote` — quote a line range as
     a pinned `[!ft-source]` callout and paste it into any other note
     (requires ft >= 0.1.5)
+  - Export clean markdown: `gy` / `:FtExport` — export a line range (or
+    the whole note) as portable CommonMark, frontmatter and wikilinks
+    stripped, for pasting outside the vault (requires ft >= 0.1.5)
 
 Note: `![[embeds]]` inline rendering is no longer supported — it was
 removed in the architecture v2 rework; the plugin is not a Markdown
@@ -199,7 +202,8 @@ Registers:                                        *ft-quote-registers*
   On success the callout is placed linewise into:
 
     "   unnamed register — plain `p` pastes the section
-    f   named register — a stable home, only ever written by ft.nvim
+    f   named register — a stable home, only ever written by ft.nvim;
+        shared with export (last op wins)
     +   system clipboard — survives closing nvim and reopening
 
   With `clipboard=unnamedplus` the unnamed register and the clipboard
@@ -240,6 +244,88 @@ Keymaps:                                          *ft-quote-keymaps*
   require('ft').setup({
     quote = {
       keymaps = { operator = '<leader>fq' }, -- or false to disable
+      registers = { named = false },         -- drop the `f` register
+    },
+  })
+<
+==============================================================================
+EXPORT (CLEAN COMMONMARK)                           *ft-export*
+
+  Export a line range of the current note as clean, portable markdown:
+  frontmatter, `[!ft-source]` callout headers, and wikilinks stripped
+  by `ft notes export` (requires ft >= 0.1.5). The result lands in
+  your registers; paste it into any other app, chat, or note without
+  the vault provenance. The inverse of quoting (`gz` wraps a range into
+  a pinned callout; `gy` strips it back out for external targets).
+
+Usage:                                            *ft-export-usage*
+
+  `gy` is a true operator: press it, then a motion or text object.
+
+    gyap     export the paragraph under the cursor
+    gy3j     export the cursor line plus three lines down
+    gyG      export from the cursor to the end of the note
+    gy       (visual mode) export the selection
+
+  `:FtExport` exports the whole note in normal mode and the selection
+  in visual mode (it also accepts an explicit range, e.g.
+  `:3,6FtExport`). After the operator the cursor returns to the start
+  of the range, so repeating `gy` plus a motion grows the export.
+
+Registers:                                        *ft-export-registers*
+
+  On success the exported text is placed linewise into:
+
+    "   unnamed register — plain `p` pastes the block
+    f   named register — a stable home, only ever written by ft.nvim;
+        shared with quote (last op wins)
+    +   system clipboard — survives closing nvim and reopening
+
+  With `clipboard=unnamedplus` the unnamed register and the clipboard
+  are the same register, so `p` in a fresh session pastes the block.
+  A clipboard that cannot be written is skipped silently; the success
+  notification lists the registers that were actually set. Any of the
+  three can be disabled under `export.registers`.
+
+  A failed export writes nothing — your previous quote/export stays in
+  the registers.
+
+What gets stripped:                             *ft-export-stripping*
+
+  `ft notes export` renders the working tree as clean CommonMark:
+
+    - frontmatter is never exported (a range starting inside it is
+      clamped to the first body line)
+    - `[!ft-source]` callout headers are dropped; their `> body` lines
+      survive as ordinary blockquotes
+    - `[[wikilinks]]` become plain text (the display text when present),
+      `![[embeds]]` become CommonMark images
+
+  Code blocks are content, not vault structure — nothing inside a
+  fenced or indented code block is converted or dropped. No git is
+  involved: unlike quote, export does not require committed files.
+
+Empty export:                                     *ft-export-empty*
+
+  A range fully inside the frontmatter exports nothing (ft exits 0 with
+  empty output) — that is success, not an error. The plugin reports it
+  at INFO and leaves the registers untouched.
+
+Save-before-export:                              *ft-export-save*
+
+  The buffer is saved to disk before exporting, so the exported text
+  matches what you see (same pattern as quote and the task
+  operations).
+
+Keymaps:                                          *ft-export-keymaps*
+
+  Default: `gy` (normal-mode operator + visual-mode key) in every
+  markdown buffer inside a vault. To change or disable:
+
+>lua
+  require('ft').setup({
+    export = {
+      keymaps = { operator = '<leader>fe' }, -- or false to disable
       registers = { named = false },         -- drop the `f` register
     },
   })

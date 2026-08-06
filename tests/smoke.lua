@@ -319,6 +319,60 @@ ok(vim.fn.getreg('"') == q_prev, 'failed quote leaves the register untouched')
 vim.fn.writefile({ '# Apple', '', 'See [[Banana]] for details.' }, apple)
 vim.cmd('edit! ' .. vim.fn.fnameescape(apple))
 
+-- ── 7. Export with the real binary ─────────────────────────────────────────
+
+local export = require('ft.export')
+
+-- A note with frontmatter, wikilinks, and an embedded quote callout.
+-- Deliberately UNCOMMITTED: export reads the working tree and needs no
+-- git — the contrast with quote's pin-to-HEAD is the point.
+local cherry = base .. '/Notes/Cherry.md'
+vim.fn.writefile({
+    '---',
+    'title: Cherry',
+    '---',
+    '# Cherry',
+    '',
+    'See [[Apple]] and [[Banana|B]] for details.',
+    '',
+    '> [!ft-source] "Notes/Apple.md" L1-2 @aaaaaaa #bbbbbb',
+    '> quoted [[Apple]]',
+}, cherry)
+vim.cmd('edit ' .. vim.fn.fnameescape(cherry))
+
+-- Whole-file export: frontmatter and the callout header stripped,
+-- wikilinks converted to their display text.
+local exp_whole = { '# Cherry', '', 'See Apple and B for details.', '', '> quoted Apple' }
+export.export_whole_file()
+local exp_lines = vim.split(vim.fn.getreg('"'):gsub('\n$', ''), '\n')
+ok(#exp_lines == #exp_whole and exp_lines[1] == '# Cherry'
+        and exp_lines[3] == 'See Apple and B for details.' and exp_lines[5] == '> quoted Apple',
+    'whole-file export strips frontmatter + callout header and converts wikilinks')
+ok(vim.fn.getreg('f') == vim.fn.getreg('"'), 'export shares the named register f')
+
+-- Range export: -l A-B passes through the plugin path.
+export.export_range(4, 6)
+exp_lines = vim.split(vim.fn.getreg('"'):gsub('\n$', ''), '\n')
+ok(#exp_lines == 3 and exp_lines[1] == '# Cherry'
+        and exp_lines[3] == 'See Apple and B for details.',
+    'range export passes -l A-B through to ft')
+
+-- Range start inside the frontmatter: ft clamps to the first body line
+-- (frontmatter is never exported) — same output as the body-only range.
+export.export_range(1, 6)
+exp_lines = vim.split(vim.fn.getreg('"'):gsub('\n$', ''), '\n')
+ok(#exp_lines == 3 and exp_lines[1] == '# Cherry',
+    'range start clamps past frontmatter (ft strips it)')
+
+-- Range fully inside the frontmatter: legal empty export — informational
+-- notification, registers untouched.
+local exp_prev = vim.fn.getreg('"')
+local e_before = #notified
+export.export_range(1, 3)
+ok(#notified == e_before + 1 and notified[#notified]:find('empty', 1, true) ~= nil,
+    'frontmatter-only range notifies the legal empty export')
+ok(vim.fn.getreg('"') == exp_prev, 'empty export leaves the registers untouched')
+
 -- Hard floor assert: the suite requires the available binary to be at
 -- least MIN_FT_VERSION (the setup check only soft-warns).
 local ver_out, ver_code = rpc.call({ '--version' })

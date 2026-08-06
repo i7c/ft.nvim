@@ -14,6 +14,8 @@
 ---   done/cancelled, set/clear the due date)
 --- - Quote — `gz` operator / `:FtQuote`: quote a line range of the current
 ---   note as a protected section (`ft notes quote`) into the registers
+--- - Export — `gy` operator / `:FtExport`: export a line range (or the
+---   whole note) as clean CommonMark (`ft notes export`) into the registers
 ---
 --- Setup:
 --- ```lua
@@ -42,6 +44,7 @@
 ---
 --- @module ft
 
+local export = require('ft.export')
 local follow = require('ft.follow')
 local picker = require('ft.picker')
 local quote = require('ft.quote')
@@ -56,7 +59,8 @@ local setup_augroup = vim.api.nvim_create_augroup('ft_setup', { clear = true })
 
 -- Minimum `ft` binary version the plugin's protocol contract assumes.
 -- See ARCHITECTURE.md, "Protocol contract". 0.1.5 is the first release
--- carrying `ft notes quote` (protected-section quoting).
+-- carrying `ft notes quote` (protected-section quoting) and
+-- `ft notes export` (clean-CommonMark rendering).
 local MIN_FT_VERSION = { 0, 1, 5 }
 
 local defaults = {
@@ -89,6 +93,16 @@ local defaults = {
             clipboard = true, -- `"+`: survives closing nvim and reopening
         },
     },
+    export = {
+        keymaps = {
+            operator = 'gy', -- operator + visual key; false disables
+        },
+        registers = {
+            unnamed = true, -- plain `p` pastes the section
+            named = true, -- register `f`: stable home, shared with quote
+            clipboard = true, -- `"+`: survives closing nvim and reopening
+        },
+    },
 }
 
 -- Merged config.
@@ -109,8 +123,9 @@ function M.setup(user_opts)
     -- Configure the picker seam.
     picker.setup(config.picker)
 
-    -- Apply the quote config (register targets).
+    -- Apply the quote/export config (register targets).
     quote.setup(config.quote)
+    export.setup(config.export)
 
     -- Soft-check the ft binary version: warn, never fail.
     M._check_ft_version()
@@ -152,6 +167,17 @@ function M.setup(user_opts)
     register_command('FtQuote', function(args)
         quote.quote_range(args.line1, args.line2)
     end, 'Quote the line range as a protected section', { range = true })
+
+    -- No range given (args.range == 0) exports the whole buffer — the
+    -- CLI's whole-file default and the flagship "clean copy of this
+    -- note" use; an explicit range or a visual selection passes -l A-B.
+    register_command('FtExport', function(args)
+        if args.range == 0 then
+            export.export_whole_file()
+        else
+            export.export_range(args.line1, args.line2)
+        end
+    end, 'Export the line range (or the whole buffer) as clean CommonMark', { range = true })
 
     register_command('FtTaskCreate', function()
         tasks.create()
@@ -240,6 +266,25 @@ function M._setup_buffer(bufnr)
         vim.keymap.set('v', quote_key, quote.operator_rhs(), {
             expr = true, -- `g@` applies the operator to the selection
             desc = 'ft: quote selection as protected section',
+            buffer = bufnr,
+        })
+    end
+
+    -- ── Export (clean CommonMark) ───────────────────────────────────
+    local export_cfg = config.export or {}
+    local export_key = (export_cfg.keymaps or {}).operator
+    if export_key then
+        -- Same operator pattern as quote: `gy` arms operatorfunc and
+        -- returns `g@` for the following motion (normal) or the
+        -- selection (visual).
+        vim.keymap.set('n', export_key, export.operator_rhs(), {
+            expr = true, -- the callback returns `g@` to take the motion
+            desc = 'ft: export motion range as clean CommonMark',
+            buffer = bufnr,
+        })
+        vim.keymap.set('v', export_key, export.operator_rhs(), {
+            expr = true, -- `g@` applies the operator to the selection
+            desc = 'ft: export selection as clean CommonMark',
             buffer = bufnr,
         })
     end

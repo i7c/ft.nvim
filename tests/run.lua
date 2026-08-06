@@ -153,30 +153,52 @@ vim.fn.setenv('FT_VAULT', '')
 ok(vault.relativize('/tmp/fake-vault/Apple.md') == nil,
     'relativize: nil without a discovered vault')
 
--- ── 5. quote pure helpers ────────────────────────────────────────────────────
+-- ── 5. rangeop pure helpers (shared by quote + export) ────────────────────
 
-local quote = require('ft.quote')
+local rangeop = require('ft.rangeop')
 
--- range_spec: the `A-B` token `ft notes quote -l` expects.
-ok(quote.range_spec(1, 1) == '1-1', 'range_spec: single line')
-ok(quote.range_spec(2, 5) == '2-5', 'range_spec: multi-line')
-ok(quote.range_spec(0, 3) == nil, 'range_spec rejects A < 1')
-ok(quote.range_spec(5, 2) == nil, 'range_spec rejects A > B')
-ok(quote.range_spec(nil, 2) == nil and quote.range_spec(2, 'x') == nil,
+-- range_spec: the `A-B` token `ft notes quote/export -l` expects.
+ok(rangeop.range_spec(1, 1) == '1-1', 'range_spec: single line')
+ok(rangeop.range_spec(2, 5) == '2-5', 'range_spec: multi-line')
+ok(rangeop.range_spec(0, 3) == nil, 'range_spec rejects A < 1')
+ok(rangeop.range_spec(5, 2) == nil, 'range_spec rejects A > B')
+ok(rangeop.range_spec(nil, 2) == nil and rangeop.range_spec(2, 'x') == nil,
     'range_spec rejects non-numbers')
 
 -- register_targets: config trim + clipboard availability gate.
-local reg_all = quote.register_targets({ unnamed = true, named = true, clipboard = true }, true)
+local reg_all = rangeop.register_targets({ unnamed = true, named = true, clipboard = true }, true)
 ok(#reg_all == 3 and reg_all[1].reg == '"' and reg_all[2].reg == 'f' and reg_all[3].reg == '+',
     'register_targets: default set, ordered " f +')
-local reg_noclip = quote.register_targets({ unnamed = true, named = true, clipboard = true }, false)
+local reg_noclip = rangeop.register_targets({ unnamed = true, named = true, clipboard = true }, false)
 ok(#reg_noclip == 2 and reg_noclip[1].reg == '"' and reg_noclip[2].reg == 'f',
     'register_targets: clipboard dropped when unavailable')
-local reg_trim = quote.register_targets({ unnamed = true, named = false, clipboard = true }, true)
+local reg_trim = rangeop.register_targets({ unnamed = true, named = false, clipboard = true }, true)
 ok(#reg_trim == 2 and reg_trim[1].reg == '"' and reg_trim[2].reg == '+',
     'register_targets: disabled entries are honored')
-local reg_none = quote.register_targets({ unnamed = false, named = false, clipboard = false }, true)
+local reg_none = rangeop.register_targets({ unnamed = false, named = false, clipboard = false }, true)
 ok(#reg_none == 0, 'register_targets: all disabled is empty')
+
+-- classify: the shared `outside file` marker warns; extra warn markers
+-- (quote's uncommitted-changes) warn too; everything else errors.
+ok(rangeop.classify('line range L9-99 outside file `a.md`') == vim.log.levels.WARN,
+    'classify: outside file warns')
+ok(rangeop.classify('source file `a.md` has uncommitted changes')
+        == vim.log.levels.ERROR,
+    'classify: uncommitted changes is an error without the extra marker')
+ok(rangeop.classify('source file `a.md` has uncommitted changes',
+        { 'has uncommitted changes' }) == vim.log.levels.WARN,
+    'classify: extra warn marker honored')
+ok(rangeop.classify('vault is not inside a git repository') == vim.log.levels.ERROR,
+    'classify: everything else is an error')
+
+-- quote delegates to the shared core (public API unchanged).
+local quote = require('ft.quote')
+ok(quote.range_spec(2, 5) == '2-5' and quote.range_spec(0, 1) == nil,
+    'quote.range_spec delegates to rangeop')
+ok(quote.register_targets({ unnamed = true, named = false, clipboard = true }, true)[1].reg == '"',
+    'quote.register_targets delegates to rangeop')
+ok(quote.register_targets({ unnamed = false, named = false, clipboard = false }, true)[1] == nil,
+    'quote.register_targets: empty set stays empty')
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 
