@@ -12,7 +12,7 @@ Navigate `[[wikilinks]]` and autocomplete note titles — all inside Neovim, bac
 - **Autocompletion** — type `[[` and note titles from your vault appear in the completion menu. Integrates natively with **blink.cmp** (LazyVim default); falls back to `'omnifunc'`
 - **Task operations** — create, create subtasks, mark done, cancel, and edit the due date of tasks without leaving nvim (`:FtTaskCreate`, `:FtTaskSubtask`, `:FtTaskDone`, `:FtTaskCancel`, `:FtTaskDue`). The create prompt accepts inline due dates (`Buy milk due:+2d`); the due command prompts for a date (`+7d`, `next monday`, or `none` to clear). The buffer is saved before each mutation and reloaded after, undo history intact
 - **Quote protected sections** — quote any line range of the current note as a pinned `[!ft-source]` callout (the `ft notes quote` plumbing) via the `gz` operator (`gzap` a paragraph, `gz3j` three lines, or `gz` on a visual selection; `:FtQuote` quotes the current line). The callout lands linewise in the unnamed register (plain `p` pastes), register `f`, and the system clipboard, so you can paste it into any other note — even in a fresh nvim session
-- **Export clean markdown** — the inverse: export a line range (or the whole note) as portable CommonMark via the `gy` operator (`gyap`, `gy3j`, `gy` on a visual selection; `:FtExport` exports the whole note). Frontmatter, `[!ft-source]` callout headers, and wikilinks are stripped by `ft notes export` — ready to paste into other apps, chats, or notes without vault provenance. Same registers as quote (they share register `f`, last op wins)
+- **Export clean markdown** — the inverse: export a line range (or the whole note) as portable markdown via the `gy` operator (`gyap`, `gy3j`, `gy` on a visual selection; `:FtExport` exports the whole note). Before copying it asks which format: `commonmark` (portable CommonMark) or `slack` (Slack mrkdwn — headings → bold, `[t](u)` → `<u|t>`, checkboxes and callout markers dropped); set `export.format` to skip the prompt. Frontmatter, `[!ft-source]` callout headers, and wikilinks are stripped by `ft notes export` — ready to paste into other apps, chats, or notes without vault provenance. Same registers as quote (they share register `f`, last op wins)
 
 ## Requirements
 
@@ -85,6 +85,7 @@ require('ft').setup({
     keymaps = {
       operator = 'gy',       -- operator (gy + motion) and visual key; false disables
     },
+    format = 'prompt',       -- export format: 'commonmark'|'slack' skips the prompt; 'prompt' always asks
     registers = {
       unnamed = true,        -- plain `p` pastes the section
       named = true,          -- register `f`: stable home, shared with quote
@@ -115,7 +116,7 @@ ft.nvim discovers your Obsidian vault in this order:
 - `:FtTaskCancel` — cancel the task under the cursor (`<leader>tc`)
 - `:FtTaskDue` — set/clear the due date of the task under the cursor (`<leader>te`; enter `none` to clear)
 - `:FtQuote` — quote the current line (normal mode) or the selection (visual mode) as a protected section (`gz` + a motion does the same as an operator)
-- `:FtExport` — export the whole note (normal mode) or the selection (visual mode) as clean CommonMark; an explicit range (`:3,6FtExport`) exports those lines (`gy` + a motion does the same as an operator)
+- `:FtExport` — export the whole note (normal mode) or the selection (visual mode) as clean CommonMark; an explicit range (`:3,6FtExport`) exports those lines (`gy` + a motion does the same as an operator). Asks for the format (`commonmark`/`slack`) unless `export.format` is set
 
 Task operations save the buffer before running `ft` and reload it after
 (undo preserved). Marking an already-done/cancelled task is a no-op.

@@ -56,11 +56,12 @@ vim.fn.writefile({
     'for a in "$@"; do',
     '  if [ "$a" = "--version" ]; then echo "ft 0.1.5"; exit 0; fi',
     'done',
-    'vault=""; file=""; lines=""',
+    'vault=""; file=""; lines=""; format=""',
     'while [ $# -gt 0 ]; do',
     '  case "$1" in',
     '    --vault) vault="$2"; shift 2 ;;',
     '    -l) lines="$2"; shift 2 ;;',
+    '    --format) format="$2"; shift 2 ;;',
     '    --json-errors) shift ;;',
     '    notes) shift 2 ;;',
     '    *) file="$1"; shift ;;',
@@ -110,11 +111,39 @@ local function last_notify()
     return notified[#notified]
 end
 
+-- ── Picker seam stub ──────────────────────────────────────────────────────
+
+-- The format prompt goes through ft.picker.select → vim.ui.select. Stub
+-- it deterministically: `picker_choice` = nil picks the first item
+-- (commonmark), a format id picks that item, 'cancel' cancels (cb(nil)).
+-- `picker_calls` counts invocations so config-skip scenarios can assert
+-- no prompt happened.
+local picker_choice = nil
+local picker_calls = 0
+vim.ui.select = function(items, _opts, cb)
+    picker_calls = picker_calls + 1
+    if picker_choice == 'cancel' then
+        cb(nil)
+        return
+    end
+    if picker_choice then
+        for _, it in ipairs(items) do
+            if it.id == picker_choice then
+                cb(it)
+                return
+            end
+        end
+    end
+    cb(items[1])
+end
+
 local function reset_state(content)
     vim.fn.writefile(content, inbox)
     vim.fn.delete(log)
     vim.fn.delete(clip_out)
     notified = {}
+    picker_choice = nil
+    picker_calls = 0
     vim.fn.setenv('FT_STUB_MODE', 'success')
     -- edit! discards any leftover buffer state between scenarios.
     vim.cmd('edit! ' .. vim.fn.fnameescape(inbox))
@@ -136,24 +165,24 @@ vim.api.nvim_win_set_cursor(0, { 1, 0 })
 export.export_range(1, 2)
 
 local log_now = table.concat(log_lines(), '\n')
-ok(log_now:find('notes export inbox.md -l 1-2 --json-errors', 1, true) ~= nil,
-    'export argv: notes export <rel> -l A-B --json-errors')
+ok(log_now:find('notes export inbox.md -l 1-2 --format commonmark --json-errors', 1, true) ~= nil,
+    'export argv: notes export <rel> -l A-B --format <fmt> --json-errors')
 ok(log_now:find('--vault ' .. base, 1, true) ~= nil, 'export argv: --vault <root> injected')
 ok(vim.fn.getreg('"') == EXPECTED_EXPORT and vim.fn.getregtype('"') == 'V',
     'unnamed register holds the exported text linewise')
 ok(vim.fn.getreg('f') == EXPECTED_EXPORT, 'named register f holds the exported text')
 ok(vim.fn.getreg('+') == EXPECTED_EXPORT, 'clipboard register + holds the exported text')
-ok(last_notify().msg == 'ft: exported L1-2 → ", f, +',
-    'success notification lists the landed registers')
+ok(last_notify().msg == 'ft: exported L1-2 (commonmark) → ", f, +',
+    'success notification lists the landed registers and the format')
 
 -- Whole-file export: no -l flag; the CLI whole-file default.
 reset_state({ 'aaa', 'bbb' })
 vim.fn.delete(log)
 export.export_whole_file()
-ok(log_lines()[1]:find('notes export inbox.md --json-errors', 1, true) ~= nil,
+ok(log_lines()[1]:find('notes export inbox.md --format commonmark --json-errors', 1, true) ~= nil,
     'whole-file argv omits -l')
-ok(last_notify().msg == 'ft: exported whole note → ", f, +',
-    'whole-file success notification names the whole note')
+ok(last_notify().msg == 'ft: exported whole note (commonmark) → ", f, +',
+    'whole-file success notification names the whole note and the format')
 
 -- Single-line range.
 reset_state({ 'aaa', 'bbb', 'ccc' })
@@ -226,7 +255,7 @@ reset_state({ 'aaa', 'bbb', 'ccc' })
 vim.fn.delete(log)
 vim.api.nvim_win_set_cursor(0, { 2, 0 })
 vim.cmd('FtExport')
-ok(log_lines()[1]:find('notes export inbox.md --json-errors', 1, true) ~= nil,
+ok(log_lines()[1]:find('notes export inbox.md --format commonmark --json-errors', 1, true) ~= nil,
     ':FtExport with no range exports the whole buffer (no -l)')
 vim.fn.delete(log)
 vim.cmd('1,3FtExport')
@@ -257,7 +286,58 @@ vim.fn.delete(log)
 export.export_range(1, 2)
 ok(vim.fn.getreg('f') == 'stale-f\n', 'named register skipped when disabled')
 ok(vim.fn.getreg('"') ~= '' and vim.fn.getreg('+') ~= '', 'enabled registers still set')
-ok(last_notify().msg == 'ft: exported L1-2 → ", +', 'notification lists only enabled registers')
+ok(last_notify().msg == 'ft: exported L1-2 (commonmark) → ", +', 'notification lists only enabled registers')
+
+-- ── Format selection ───────────────────────────────────────────────────────
+
+-- Picker choice: slack is passed as --format and named in the notification.
+reset_state({ 'aaa', 'bbb' })
+export.setup({ format = 'prompt', registers = { unnamed = true, named = true, clipboard = true } })
+picker_choice = 'slack'
+vim.fn.delete(log)
+export.export_range(1, 2)
+ok(log_lines()[1]:find('--format slack', 1, true) ~= nil,
+    'picker choice slack → argv carries --format slack')
+ok(last_notify().msg == 'ft: exported L1-2 (slack) → ", f, +',
+    'success notification names the picked format')
+
+-- Cancel: no ft call, no register write, no notification.
+reset_state({ 'aaa', 'bbb' })
+picker_choice = 'cancel'
+vim.fn.setreg('"', 'keep-me', 'l')
+vim.fn.delete(log)
+export.export_range(1, 2)
+ok(#log_lines() == 0, 'cancelled format prompt: no ft call runs')
+ok(vim.fn.getreg('"') == 'keep-me\n', 'cancelled format prompt: registers untouched')
+ok(#notified == 0, 'cancelled format prompt: no notification')
+
+-- Whole-file export prompts too.
+reset_state({ 'aaa', 'bbb' })
+picker_choice = 'slack'
+vim.fn.delete(log)
+export.export_whole_file()
+ok(log_lines()[1]:find('notes export inbox.md --format slack --json-errors', 1, true) ~= nil,
+    'whole-file export prompts and passes --format')
+
+-- Configured format skips the prompt entirely.
+reset_state({ 'aaa', 'bbb' })
+export.setup({ format = 'slack', registers = { unnamed = true, named = true, clipboard = true } })
+vim.fn.delete(log)
+export.export_range(1, 2)
+ok(picker_calls == 0, 'export.format = slack: no prompt is shown')
+ok(log_lines()[1]:find('--format slack', 1, true) ~= nil,
+    'export.format = slack: argv carries --format slack')
+
+-- Unknown config value behaves like 'prompt' (falls back to the picker).
+reset_state({ 'aaa', 'bbb' })
+export.setup({ format = 'bogus', registers = { unnamed = true, named = true, clipboard = true } })
+vim.fn.delete(log)
+export.export_range(1, 2)
+ok(picker_calls == 1 and log_lines()[1]:find('--format commonmark', 1, true) ~= nil,
+    'unknown export.format falls back to the prompt (commonmark picked)')
+
+-- Restore the default config for the remaining scenarios.
+export.setup({ format = 'prompt', registers = { unnamed = true, named = true, clipboard = true } })
 
 -- ── Error classification ───────────────────────────────────────────────────
 

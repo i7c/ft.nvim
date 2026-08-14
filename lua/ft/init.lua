@@ -39,6 +39,9 @@
 ---             due = '<leader>te',
 ---         },
 ---     },
+---     export = {
+---         format = 'prompt', -- 'commonmark'|'slack' skips the format prompt; 'prompt' always asks
+---     },
 --- })
 --- ```
 ---
@@ -58,10 +61,11 @@ local M = {}
 local setup_augroup = vim.api.nvim_create_augroup('ft_setup', { clear = true })
 
 -- Minimum `ft` binary version the plugin's protocol contract assumes.
--- See ARCHITECTURE.md, "Protocol contract". 0.1.5 is the first release
--- carrying `ft notes quote` (protected-section quoting) and
--- `ft notes export` (clean-CommonMark rendering).
-local MIN_FT_VERSION = { 0, 1, 5 }
+-- See ARCHITECTURE.md, "Protocol contract". 0.1.7 is the first
+-- release carrying the full consumed surface: `ft notes quote`,
+-- `ft notes export`, and both `--format` values (export ships in
+-- 0.1.6 with `commonmark` only; the `slack` target lands in 0.1.7).
+local MIN_FT_VERSION = { 0, 1, 7 }
 
 local defaults = {
     vault = nil,
@@ -97,6 +101,7 @@ local defaults = {
         keymaps = {
             operator = 'gy', -- operator + visual key; false disables
         },
+        format = 'prompt', -- export format: 'commonmark'|'slack' skips the prompt; 'prompt' always asks
         registers = {
             unnamed = true, -- plain `p` pastes the section
             named = true, -- register `f`: stable home, shared with quote

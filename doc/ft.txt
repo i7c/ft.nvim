@@ -17,8 +17,9 @@ Features:
     a pinned `[!ft-source]` callout and paste it into any other note
     (requires ft >= 0.1.5)
   - Export clean markdown: `gy` / `:FtExport` — export a line range (or
-    the whole note) as portable CommonMark, frontmatter and wikilinks
-    stripped, for pasting outside the vault (requires ft >= 0.1.5)
+    the whole note) as portable CommonMark or Slack mrkdwn, frontmatter
+    and wikilinks stripped, for pasting outside the vault (requires
+    ft >= 0.1.7)
 
 Note: `![[embeds]]` inline rendering is no longer supported — it was
 removed in the architecture v2 rework; the plugin is not a Markdown
@@ -253,7 +254,7 @@ EXPORT (CLEAN COMMONMARK)                           *ft-export*
 
   Export a line range of the current note as clean, portable markdown:
   frontmatter, `[!ft-source]` callout headers, and wikilinks stripped
-  by `ft notes export` (requires ft >= 0.1.5). The result lands in
+  by `ft notes export` (requires ft >= 0.1.7). The result lands in
   your registers; paste it into any other app, chat, or note without
   the vault provenance. The inverse of quoting (`gz` wraps a range into
   a pinned callout; `gy` strips it back out for external targets).
@@ -271,6 +272,32 @@ Usage:                                            *ft-export-usage*
   in visual mode (it also accepts an explicit range, e.g.
   `:3,6FtExport`). After the operator the cursor returns to the start
   of the range, so repeating `gy` plus a motion grows the export.
+
+Format selection:                              *ft-export-format*
+
+  Before anything is copied, the export format is resolved — every
+  entry point (operator, visual, `:FtExport`) asks the same way:
+
+    commonmark   clean CommonMark — the portable-markdown default
+    slack        Slack mrkdwn — headings become bold, `[t](u)` becomes
+                 `<u|t>`, task checkboxes are dropped, callout markers
+                 are stripped, and `~~~` fences become ``` fences
+
+  The choice is made via your configured picker (the `ft.picker`
+  seam, default `vim.ui.select`). Cancelling aborts silently — nothing
+  runs, nothing is copied. The chosen format is passed to ft as
+  `--format` and named in the success notification, e.g.
+  `ft: exported L1-2 (slack) → ", f, +`.
+
+  To skip the prompt entirely, set a fixed format:
+
+>lua
+  require('ft').setup({
+    export = {
+      format = 'slack', -- 'commonmark' | 'slack' | 'prompt' (default)
+    },
+  })
+<
 
 Registers:                                        *ft-export-registers*
 
@@ -327,6 +354,7 @@ Keymaps:                                          *ft-export-keymaps*
     export = {
       keymaps = { operator = '<leader>fe' }, -- or false to disable
       registers = { named = false },         -- drop the `f` register
+      format = 'prompt',                     -- or 'commonmark' / 'slack'
     },
   })
 <
@@ -380,7 +408,8 @@ REQUIREMENTS                                    *ft-requirements*
 - The `ft` CLI tool (build from `ft` repo):
   Install with `cargo install --path ft` from the `ft` repository.
   Must be on `$PATH`.
-  Quoting protected sections requires ft >= 0.1.5.
+  Quoting protected sections requires ft >= 0.1.5. Exporting (with
+  format selection) requires ft >= 0.1.7.
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

@@ -73,7 +73,7 @@ ok(setup_ok, 'setup with legacy embeds config key loads without error')
 
 local warned = false
 for _, m in ipairs(notified) do
-    if m:find('older than the required 0.1.5', 1, true) then
+    if m:find('older than the required 0.1.7', 1, true) then
         warned = true
     end
 end
@@ -323,6 +323,11 @@ vim.cmd('edit! ' .. vim.fn.fnameescape(apple))
 
 local export = require('ft.export')
 
+-- The export format prompt is interactive; the smoke suite is not.
+-- Configure a fixed format so every export below skips the prompt and
+-- runs the same path a picker choice would take (--format passed).
+require('ft').setup({ export = { format = 'commonmark' } })
+
 -- A note with frontmatter, wikilinks, and an embedded quote callout.
 -- Deliberately UNCOMMITTED: export reads the working tree and needs no
 -- git — the contrast with quote's pin-to-HEAD is the point.
@@ -373,13 +378,23 @@ ok(#notified == e_before + 1 and notified[#notified]:find('empty', 1, true) ~= n
     'frontmatter-only range notifies the legal empty export')
 ok(vim.fn.getreg('"') == exp_prev, 'empty export leaves the registers untouched')
 
+-- Slack target: the same range converted to mrkdwn (headings → bold,
+-- checkboxes/callout markers stripped). Round-trips --format slack.
+require('ft').setup({ export = { format = 'slack' } })
+export.export_range(4, 6)
+exp_lines = vim.split(vim.fn.getreg('"'):gsub('\n$', ''), '\n')
+ok(#exp_lines == 3 and exp_lines[1] == '*Cherry*'
+        and exp_lines[3] == 'See Apple and B for details.',
+    'slack format exports headings as bold and strips vault structure')
+require('ft').setup({ export = { format = 'commonmark' } })
+
 -- Hard floor assert: the suite requires the available binary to be at
 -- least MIN_FT_VERSION (the setup check only soft-warns).
 local ver_out, ver_code = rpc.call({ '--version' })
 local version = rpc.parse_version(ver_out)
 ok(ver_code == 0 and version ~= nil, 'real binary reports a parseable version')
-ok(version ~= nil and not rpc.version_lt(version, { 0, 1, 5 }),
-    'real binary version >= 0.1.5 (MIN_FT_VERSION floor)')
+ok(version ~= nil and not rpc.version_lt(version, { 0, 1, 7 }),
+    'real binary version >= 0.1.7 (MIN_FT_VERSION floor)')
 
 -- ── summary ─────────────────────────────────────────────────────────────────
 

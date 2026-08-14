@@ -104,7 +104,7 @@ this file and the plugin's `min_ft_version` check change with it.
 | `ft tasks cancel` | `<file>:<line>` `--yes --json-errors` | `tasks.lua` (cancel) | Already-cancelled already exits 0 (idempotent at the CLI) |
 | `ft tasks edit` | `<file>:<line>` `--due <DATE\|none> --json-errors` | `tasks.lua` (set_due) | Single-task; `none` clears the due date; invalid dates error cleanly |
 | `ft notes quote` | `<FILE>` `-l A-B` (short for `--lines`) `--json-errors` | `quote.lua` | Read-only plumbing: emits the canonical `[!ft-source]` callout for a 1-indexed inclusive line range, pinned to HEAD (short SHA + blake3 content hash). Fails on a source with uncommitted changes, a missing file, an out-of-bounds range, or a vault outside git — the plugin surfaces the message, never git |
-| `ft notes export` | `<FILE>` `[-l A-B]` `--json-errors` | `export.lua` | Read-only plumbing: renders a note (or an original-file line range) as clean CommonMark — frontmatter dropped, `[!ft-source]` callout headers dropped (their `> body` lines survive as blockquotes), wikilinks converted to plain text / CommonMark images. No git dependency (the working tree is the source of truth); the range start clamps past the frontmatter. No `-l` exports the whole file; a range fully inside the frontmatter exits 0 with empty output — a legal result the plugin reports at INFO with the registers untouched. `--format commonmark` is the CLI default and is not passed |
+| `ft notes export` | `<FILE>` `[-l A-B]` `--format <FORMAT>` `--json-errors` | `export.lua` | Read-only plumbing: renders a note (or an original-file line range) as clean CommonMark — frontmatter dropped, `[!ft-source]` callout headers dropped (their `> body` lines survive as blockquotes), wikilinks converted to plain text / CommonMark images. No git dependency (the working tree is the source of truth); the range start clamps past the frontmatter. No `-l` exports the whole file; a range fully inside the frontmatter exits 0 with empty output — a legal result the plugin reports at INFO with the registers untouched. `--format <FORMAT>` is always passed (`commonmark` \| `slack`), resolved by `export.lua`'s format step — config `export.format` skips the prompt, `'prompt'` (default) asks via the picker seam, cancel aborts silently |
 
 Error classification for the update ops matches ft's stable error
 strings (`is already done`, `no tasks match selector`), pinned by the
@@ -115,7 +115,7 @@ the message text too (`outside file` → warn, everything else → error),
 pinned by the export stub tests; an empty export is success, not an
 error.
 
-The plugin's `MIN_FT_VERSION` floor (currently `0.1.5`) is checked at
+The plugin's `MIN_FT_VERSION` floor (currently `0.1.7`) is checked at
 setup: an older binary produces a warning, never a failure.
 
 ### Roadmap surface (not yet consumed)
